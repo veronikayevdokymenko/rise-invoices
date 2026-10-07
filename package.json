@@ -1,0 +1,25 @@
+{
+  "name": "rise-invoices",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RiseGuide invoice service: invoice editor, archive and invoice log",
+  "main": "server/index.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --env-file=.env --watch server/index.js",
+    "import-legacy": "node scripts/import-legacy.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "connect-pg-simple": "^10.0.0",
+    "csv-parse": "^5.5.6",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "google-auth-library": "^9.15.0",
+    "helmet": "^8.0.0",
+    "jspdf": "^2.5.2",
+    "jszip": "^3.10.1",
+    "pg": "^8.13.1"
+  }
+}
