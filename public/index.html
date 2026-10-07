@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rise Invoices</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="mark"><i>.RiSE</i>Інвойси</div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="editor" aria-selected="true">Інвойс</button>
+    <button role="tab" data-tab="archive" aria-selected="false">Архів</button>
+    <button role="tab" data-tab="log" aria-selected="false">Лог</button>
+    <button role="tab" data-tab="settings" aria-selected="false">Налаштування</button>
+  </nav>
+  <div class="ctx" id="ctx"></div>
+  <div class="me" id="me"></div>
+</div></header>
+
+<main>
+<div class="banner" id="banner" hidden></div>
+
+<!-- EDITOR -->
+<section class="view" id="view-editor">
+<div class="editor">
+<form class="form" id="form" autocomplete="off">
+
+  <div class="step">
+    <h2><span>1</span>Документ і клієнт</h2>
+    <div class="row" style="margin-bottom:14px">
+      <div class="seg" data-seg="docType">
+        <button type="button" data-v="invoice">Інвойс</button>
+        <button type="button" data-v="credit_note">Кредит-нота</button>
+      </div>
+      <div class="seg" data-seg="kind">
+        <button type="button" data-v="B2C">Особа (B2C)</button>
+        <button type="button" data-v="B2B">Компанія (B2B)</button>
+      </div>
+    </div>
+    <div class="grid">
+      <label class="f full cn-only">Кредит-нота до документа №<input type="text" data-k="creditFor" placeholder="10622-2"><span class="hint">Суми вводимо додатні — у кредит-ноті вони стануть від'ємними.</span></label>
+      <label class="f full"><span id="nameLabel">Ім'я та прізвище</span><input type="text" data-k="client.name" placeholder="Jane Doe"></label>
+      <label class="f full">Email <input type="email" data-k="client.email" placeholder="user@example.com"><span class="hint" id="dupHint"></span></label>
+      <label class="f full">Адреса <span class="hint" style="display:inline">(для B2B обов'язково)</span><textarea data-k="client.address" rows="2" placeholder="Street 1, 10115 Berlin, Germany"></textarea></label>
+      <div class="f full b2b">VAT / Tax ID
+        <div class="inline"><input type="text" data-k="client.vat" placeholder="DE123456789"><button type="button" class="btn sm" id="btnVies">Перевірити VIES</button></div>
+        <div class="vat-res" id="vatRes"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <h2><span>2</span>Країна і податок</h2>
+    <div class="grid">
+      <label class="f">Країна (Issuer country в Solid)<select data-k="country" id="countrySel"></select></label>
+      <label class="f us-only">Штат (США)<select data-k="usState"><option value="">Інший штат</option><option value="TX">Texas — 80% суми оподатковується</option></select></label>
+      <label class="f">Валюта<select data-k="currency" id="curSel"></select></label>
+      <label class="f">Шаблон<select data-k="layout" id="layoutSel"></select></label>
+      <div class="full vat-only">
+        <div class="f" style="margin-bottom:6px;font-size:13px;color:var(--muted);font-weight:500">Ставка податку</div>
+        <div class="seg" data-seg="taxMode">
+          <button type="button" data-v="standard" id="taxStdBtn">Standard VAT</button>
+          <button type="button" data-v="zero">B2B — 0% VAT</button>
+          <button type="button" data-v="custom">Свій %</button>
+        </div>
+        <div class="hint" id="taxHint" style="margin-top:6px"></div>
+      </div>
+      <label class="f" id="customRateWrap">Ставка, %<input type="text" inputmode="decimal" data-k="customRate" placeholder="20"></label>
+      <label class="f full">Примітка під таблицею<select data-k="note" id="noteSel">
+        <option value="auto">Автоматично (за правилом таблиці)</option>
+        <option value="none">Без примітки</option>
+        <option value="EU">Reverse charge – Article 196 (ЄС)</option>
+        <option value="UK">VAT is subject to reverse charge (UK)</option>
+        <option value="nonEU">Outside the scope of EU VAT</option>
+        <option value="custom">Свій текст</option>
+      </select><span class="hint" id="noteHint"></span></label>
+      <label class="f full" id="noteTextWrap">Текст примітки<textarea data-k="noteText" rows="2"></textarea></label>
+    </div>
+  </div>
+
+  <div class="step">
+    <h2><span>3</span>Оплата</h2>
+    <div class="grid">
+      <label class="f">Payment channel<select data-k="payment.channel" id="channelSel"></select></label>
+      <label class="f card-only">Останні 4 цифри<input type="text" inputmode="numeric" maxlength="4" data-k="payment.last4" placeholder="1234"></label>
+      <label class="f pp-only">PayPal Invoice ID<input type="text" data-k="payment.paypalId"></label>
+      <label class="f">Підписка<select data-k="payment.plan"><option value="4-week">4 week (auto-renewing)</option><option value="12-week">12 week (auto-renewing)</option><option value="24-week">24 week (auto-renewing)</option><option value="">—</option></select></label>
+      <label class="f">Solidgate order ID <span class="hint" style="display:inline">(необов'язково)</span><input type="text" data-k="payment.solidgateOrderId" placeholder="для пошуку і звірки"></label>
+    </div>
+  </div>
+
+  <div class="step">
+    <h2><span>4</span>Платежі</h2>
+    <div class="lines" id="lines"></div>
+    <div class="row" style="margin-top:10px;justify-content:space-between">
+      <button type="button" class="btn sm" id="addLine">Додати платіж</button>
+      <span class="hint" id="linesHint">Суми — як у Solid, з податком.</span>
+    </div>
+    <div class="grid" style="margin-top:18px">
+      <div class="multi-only-wrap">
+        <div style="font-size:13px;color:var(--muted);font-weight:500;margin-bottom:6px">Документ</div>
+        <div class="seg" data-seg="mode">
+          <button type="button" data-v="MULTI">Один PDF (MULTI)</button>
+          <button type="button" data-v="SINGLE">PDF на кожен платіж (SINGLE)</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;color:var(--muted);font-weight:500;margin-bottom:6px">Юрособа (LLC)</div>
+        <div class="seg" data-seg="entity">
+          <button type="button" data-v="celeb">Celeb</button>
+          <button type="button" data-v="trible">Trible</button>
+        </div>
+      </div>
+      <div class="full" id="dateWrap">
+        <label class="check"><input type="checkbox" data-k="dateAuto"> Дата документа = дата останньої оплати</label>
+        <input type="date" data-k="invoiceDate" id="invDate" style="margin-top:8px;max-width:220px">
+      </div>
+    </div>
+  </div>
+
+</form>
+
+<aside class="side">
+  <div class="actions">
+    <button class="btn" id="btnNew" type="button">Новий</button>
+    <button class="btn" id="btnSave" type="button">Зберегти</button>
+    <select id="statusSel" aria-label="Статус" style="width:auto;min-height:36px"></select>
+    <span class="grow"></span>
+    <details class="links"><summary class="btn">Посилання</summary><div class="menu" id="linksMenu"></div></details>
+    <button class="btn" id="btnUser" type="button">Текст юзеру</button>
+    <button class="btn primary" id="btnGen" type="button">Згенерувати PDF</button>
+  </div>
+  <div class="alerts" id="alerts"></div>
+  <div class="desk" id="desk"></div>
+</aside>
+</div>
+</section>
+
+<!-- ARCHIVE -->
+<section class="view" id="view-archive" hidden>
+  <div class="bar">
+    <input type="text" id="q" placeholder="Пошук: номер, ім'я, email, VAT, order ID">
+    <select id="fStatus"></select>
+    <select id="fType"><option value="">Усі документи</option><option value="invoice">Інвойси</option><option value="credit_note">Кредит-ноти</option></select>
+    <label class="check"><input type="checkbox" id="fMine"> Лише мої</label>
+    <span class="sub" id="count"></span>
+  </div>
+  <div class="tablewrap">
+    <table class="list">
+      <thead><tr><th>№</th><th>Клієнт</th><th>Країна</th><th>Дата</th><th class="num">Сума</th><th>Статус</th><th>Оновлено</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden></div>
+    <div class="pager" id="pager"></div>
+  </div>
+</section>
+
+<!-- LOG -->
+<section class="view" id="view-log" hidden>
+  <div class="bar">
+    <input type="text" id="lq" placeholder="Пошук: номер, клієнт, email, хто створив">
+    <select id="lAction"><option value="">Усі дії</option></select>
+    <label class="f" style="flex-direction:row;align-items:center">з <input type="date" id="lFrom" style="width:auto"></label>
+    <label class="f" style="flex-direction:row;align-items:center">по <input type="date" id="lTo" style="width:auto"></label>
+    <a class="btn sm" id="lCsv" href="/api/log.csv">Експорт CSV</a>
+    <span class="sub" id="lCount"></span>
+  </div>
+  <div class="tablewrap">
+    <table class="list log">
+      <thead><tr><th>Коли (UTC)</th><th>Дія</th><th>№</th><th>Клієнт</th><th>Країна · канал</th><th>LLC · режим</th><th class="num">Сума</th><th>Хто</th></tr></thead>
+      <tbody id="lbody"></tbody>
+    </table>
+    <div class="empty" id="lempty" hidden></div>
+    <div class="pager" id="lpager"></div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section class="view" id="view-settings" hidden>
+  <div class="settings">
+    <div class="card">
+      <h2>Загальне</h2>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <label class="f">Наступний номер не менший за<input type="number" id="sStart"><span class="hint">Далі номер росте автоматично від найбільшого в архіві. Номер дається при першій генерації PDF.</span></label>
+        <label class="f">Payment terms (низ документа)<textarea id="sTerms" rows="4"></textarea></label>
+        <button class="btn primary" id="sSaveGen" type="button" style="align-self:flex-start">Зберегти</button>
+        <p class="hint" id="adminHint"></p>
+      </div>
+      <h2 style="margin-top:26px">Імпорт з Google-таблиці</h2>
+      <p class="hint" style="margin-top:-4px">У таблиці INVOICE 2.0 відкрийте вкладку <b>INVOICE_LOG</b> → Файл → Завантажити → CSV (поточний аркуш). Повторний імпорт безпечний: вже імпортовані рядки пропускаються.</p>
+      <div class="row"><input type="file" id="legacyFile" accept=".csv,text/csv"><button class="btn sm" id="legacyGo" type="button">Імпортувати</button></div>
+      <p class="hint" id="legacyRes"></p>
+    </div>
+    <div class="card">
+      <h2>Країни (VAT_RULES)</h2>
+      <p class="hint" style="margin:-4px 0 12px">Ставка, валюта за замовчуванням, регіон для приміток і шаблон (з VAT / без VAT). Зміни бачить уся команда і записуються в лог.</p>
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="ctQ" placeholder="Фільтр" style="max-width:200px">
+        <button class="btn sm" id="ctAdd" type="button">Додати країну</button>
+        <span class="grow" style="flex:1"></span>
+        <button class="btn primary sm" id="ctSave" type="button">Зберегти таблицю</button>
+      </div>
+      <div class="ct-wrap"><table class="ct"><thead><tr><th>Код</th><th>Назва</th><th>Ставка %</th><th>Валюта</th><th>Регіон</th><th>Шаблон</th><th>Правило</th></tr></thead><tbody id="ctBody"></tbody></table></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<div class="scrim" id="drawerScrim" hidden><aside class="drawer" id="drawer" role="dialog" aria-modal="true"></aside></div>
+<div class="modal-scrim" id="modalScrim" hidden><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="/vendor/jspdf.umd.min.js"></script>
+<script src="/vendor/jszip.min.js"></script>
+<script src="/fonts.js"></script>
+<script src="/shared/calc.js"></script>
+<script src="/pdf.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
