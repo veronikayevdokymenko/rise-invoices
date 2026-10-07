@@ -20,6 +20,47 @@ const IS_PROD = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_E
 // Local testing only: skip Google and sign in as this email. Needs ENABLE_DEV_LOGIN=true and is impossible in production.
 const DEV_LOGIN_EMAIL = !IS_PROD && process.env.ENABLE_DEV_LOGIN === "true" ? String(process.env.DEV_LOGIN_EMAIL || "").trim().toLowerCase() : "";
 
+/*
+ * TEMPORARY password sign-in (instead of Google), switched on when LOGIN_USERS is set.
+ *   LOGIN_USERS  "email:password, email2:password2"  (split on the FIRST ":"; passwords must not contain commas)
+ * Removing someone from LOGIN_USERS signs them out within a minute.
+ * To go back to Google sign-in: delete LOGIN_USERS and set the Google variables.
+ */
+function parseLoginUsers(v) {
+  const users = new Map();
+  for (const entry of String(v || "").split(/[,\n]/)) {
+    const i = entry.indexOf(":");
+    if (i < 1) continue;
+    const email = entry.slice(0, i).trim().toLowerCase();
+    const password = entry.slice(i + 1).trim();
+    if (email.includes("@") && password) users.set(email, password);
+  }
+  return users;
+}
+const LOGIN_USERS = parseLoginUsers(process.env.LOGIN_USERS);
+const PASSWORD_MODE = LOGIN_USERS.size > 0;
+const MIN_PASSWORD_LENGTH = 12;
+const sha = (s) => crypto.createHash("sha256").update(String(s)).digest();
+function passwordMatches(email, password) {
+  const expected = LOGIN_USERS.get(email);
+  // compare hashes in constant time; still do the work for unknown emails
+  const ok = crypto.timingSafeEqual(sha(expected === undefined ? crypto.randomBytes(16).toString("hex") : expected), sha(password));
+  return ok && expected !== undefined;
+}
+// Simple brute-force protection: 8 failed attempts per IP or per email → wait 15 minutes.
+const FAIL_LIMIT = 8, FAIL_WINDOW = 15 * 60 * 1000;
+const failures = new Map();
+function tooManyFailures(key) {
+  const f = failures.get(key);
+  if (!f || Date.now() - f.first > FAIL_WINDOW) { failures.delete(key); return false; }
+  return f.count >= FAIL_LIMIT;
+}
+function recordFailure(key) {
+  const f = failures.get(key);
+  if (!f || Date.now() - f.first > FAIL_WINDOW) failures.set(key, { first: Date.now(), count: 1 });
+  else f.count++;
+}
+
 function oauthClient() {
   return new OAuth2Client(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, PUBLIC_URL + "/auth/callback");
 }
@@ -43,8 +84,22 @@ async function upsertUser({ email, name, picture }) {
 
 const router = express.Router();
 
+function loginForm(error, email) {
+  return page("Rise Invoices — вхід", `</p>
+<form method="post" action="/auth/login" style="display:grid;gap:12px;margin-top:8px">
+  ${error ? `<div style="color:#b42318">${escapeHtml(error)}</div>` : ""}
+  <label>Робоча пошта<br><input name="email" type="email" required autocomplete="username" value="${escapeHtml(email || "")}" style="width:100%;padding:8px;font:inherit;box-sizing:border-box"></label>
+  <label>Пароль<br><input name="password" type="password" required autocomplete="current-password" style="width:100%;padding:8px;font:inherit;box-sizing:border-box"></label>
+  <button type="submit" style="padding:10px;font:inherit;cursor:pointer">Увійти</button>
+</form><p>`);
+}
+
 router.get("/auth/login", (req, res) => {
   if (DEV_LOGIN_EMAIL) return res.redirect("/auth/dev");
+  if (PASSWORD_MODE) {
+    if (req.session && req.session.user) return res.redirect("/");
+    return res.send(loginForm());
+  }
   if (!process.env.GOOGLE_CLIENT_ID) return res.status(500).send("GOOGLE_CLIENT_ID is not set.");
   const state = crypto.randomBytes(16).toString("hex");
   req.session.oauthState = state;
@@ -57,7 +112,33 @@ router.get("/auth/login", (req, res) => {
   res.redirect(url);
 });
 
+router.post("/auth/login", express.urlencoded({ extended: false, limit: "10kb" }), async (req, res, next) => {
+  if (!PASSWORD_MODE) return res.status(404).end();
+  try {
+    const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+    const password = String((req.body && req.body.password) || "");
+    const ipKey = "ip:" + req.ip, emailKey = "email:" + email;
+    if (tooManyFailures(ipKey) || tooManyFailures(emailKey)) {
+      return res.status(429).send(loginForm("Забагато невдалих спроб. Спробуйте через 15 хвилин.", email));
+    }
+    if (!passwordMatches(email, password)) {
+      recordFailure(ipKey); recordFailure(emailKey);
+      console.warn("password login failed for", email || "(empty)", "from", req.ip);
+      return res.status(401).send(loginForm("Невірна пошта або пароль.", email));
+    }
+    failures.delete(emailKey);
+    const user = await upsertUser({ email, name: email.split("@")[0], picture: "" });
+    if (user.role === "disabled") return res.status(403).send(page("Доступ вимкнено", "Зверніться до адміністратора."));
+    req.session.regenerate((err) => {
+      if (err) return next(err);
+      req.session.user = user;
+      req.session.save(() => res.redirect("/"));
+    });
+  } catch (e) { next(e); }
+});
+
 router.get("/auth/callback", async (req, res) => {
+  if (PASSWORD_MODE) return res.redirect("/auth/login");
   try {
     if (!req.query.state || req.query.state !== req.session.oauthState) return res.status(400).send("Login expired — please try again.");
     delete req.session.oauthState;
@@ -105,7 +186,7 @@ async function checkUser(req, res, next) {
   // re-check role at most once a minute so a disabled user is cut off quickly
   if (!req.session.checkedAt || Date.now() - req.session.checkedAt > 60000) {
     const { rows } = await query("SELECT email, name, picture, role FROM users WHERE email = $1", [u.email]);
-    if (!rows[0] || rows[0].role === "disabled") {
+    if (!rows[0] || rows[0].role === "disabled" || (PASSWORD_MODE && !LOGIN_USERS.has(u.email))) {
       req.session.destroy(() => {});
       return res.status(401).json({ error: "not_signed_in" });
     }
@@ -129,4 +210,4 @@ function page(title, body) {
 <body style="font:16px system-ui;max-width:520px;margin:15vh auto;padding:0 16px"><h1 style="font-size:22px">${title}</h1><p>${body}</p></body>`;
 }
 
-module.exports = { router, requireUser, requireAdmin, page, IS_PROD, DEV_LOGIN_EMAIL, ALLOWED_DOMAINS };
+module.exports = { router, requireUser, requireAdmin, page, IS_PROD, DEV_LOGIN_EMAIL, ALLOWED_DOMAINS, PASSWORD_MODE, LOGIN_USERS, MIN_PASSWORD_LENGTH };

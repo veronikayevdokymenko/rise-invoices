@@ -12,10 +12,26 @@ const PORT = Number(process.env.PORT) || 3000;
 
 async function main() {
   if (auth.IS_PROD) {
-    const missing = ["SESSION_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "PUBLIC_URL", "ALLOWED_DOMAINS"].filter((k) => !process.env[k]);
+    const required = auth.PASSWORD_MODE
+      ? ["SESSION_SECRET"]
+      : ["SESSION_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "PUBLIC_URL", "ALLOWED_DOMAINS"];
+    const missing = required.filter((k) => !process.env[k]);
     if (missing.length) {
-      console.error("Missing environment variables:", missing.join(", "));
+      console.error("Missing environment variables:", missing.join(", "),
+        auth.PASSWORD_MODE ? "" : "(or set LOGIN_USERS to use temporary password sign-in instead of Google)");
       process.exit(1);
+    }
+    if (auth.PASSWORD_MODE) {
+      const weak = [...auth.LOGIN_USERS].filter(([, p]) => p.length < auth.MIN_PASSWORD_LENGTH).map(([e]) => e);
+      if (weak.length) {
+        console.error(`LOGIN_USERS: passwords must be at least ${auth.MIN_PASSWORD_LENGTH} characters. Too short for: ${weak.join(", ")}`);
+        process.exit(1);
+      }
+      if (process.env.SESSION_SECRET.length < 32) {
+        console.error("SESSION_SECRET must be at least 32 characters.");
+        process.exit(1);
+      }
+      console.warn(`TEMPORARY password sign-in is on for ${auth.LOGIN_USERS.size} user(s): ${[...auth.LOGIN_USERS.keys()].join(", ")}`);
     }
   } else if (auth.DEV_LOGIN_EMAIL) {
     console.warn("DEV LOGIN ENABLED for " + auth.DEV_LOGIN_EMAIL + " — local testing only.");
