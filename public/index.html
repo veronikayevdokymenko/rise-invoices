@@ -11,7 +11,7 @@
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="mark"><i>.RiSE</i>Інвойси</div>
+  <div class="mark"><img src="/logo.png" alt="Rise" width="30" height="30">Інвойси</div>
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="editor" aria-selected="true">Інвойс</button>
     <button role="tab" data-tab="archive" aria-selected="false">Архів</button>
@@ -29,6 +29,14 @@
 <section class="view" id="view-editor">
 <div class="editor">
 <form class="form" id="form" autocomplete="off">
+
+  <div class="step step-llc">
+    <h2>Юрособа (LLC)</h2>
+    <div class="seg" data-seg="entity">
+      <button type="button" data-v="celeb">Celeb</button>
+      <button type="button" data-v="trible">Trible</button>
+    </div>
+  </div>
 
   <div class="step">
     <h2><span>1</span>Документ і клієнт</h2>
@@ -57,7 +65,7 @@
   <div class="step">
     <h2><span>2</span>Країна і податок</h2>
     <div class="grid">
-      <label class="f">Країна (Issuer country в Solid)<select data-k="country" id="countrySel"></select></label>
+      <label class="f">Країна (Issuer country в Solid)<input type="text" id="countryInp" list="countryList" placeholder="Почніть вводити: Німеччина, DEU…" autocomplete="off" spellcheck="false"><datalist id="countryList"></datalist></label>
       <label class="f us-only">Штат (США)<select data-k="usState"><option value="">Інший штат</option><option value="TX">Texas — 80% суми оподатковується</option></select></label>
       <label class="f">Валюта<select data-k="currency" id="curSel"></select></label>
       <label class="f">Шаблон<select data-k="layout" id="layoutSel"></select></label>
@@ -86,11 +94,10 @@
   <div class="step">
     <h2><span>3</span>Оплата</h2>
     <div class="grid">
-      <label class="f">Payment channel<select data-k="payment.channel" id="channelSel"></select></label>
-      <label class="f card-only">Останні 4 цифри<input type="text" inputmode="numeric" maxlength="4" data-k="payment.last4" placeholder="1234"></label>
+      <label class="f">Payment channel<select id="methodSel"></select></label>
+      <label class="f card-only">Тип картки<select id="brandSel"></select></label>
       <label class="f pp-only">PayPal Invoice ID<input type="text" data-k="payment.paypalId"></label>
       <label class="f">Підписка<select data-k="payment.plan"><option value="4-week">4 week (auto-renewing)</option><option value="12-week">12 week (auto-renewing)</option><option value="24-week">24 week (auto-renewing)</option><option value="">—</option></select></label>
-      <label class="f">Solidgate order ID <span class="hint" style="display:inline">(необов'язково)</span><input type="text" data-k="payment.solidgateOrderId" placeholder="для пошуку і звірки"></label>
     </div>
   </div>
 
@@ -109,13 +116,6 @@
           <button type="button" data-v="SINGLE">PDF на кожен платіж (SINGLE)</button>
         </div>
       </div>
-      <div>
-        <div style="font-size:13px;color:var(--muted);font-weight:500;margin-bottom:6px">Юрособа (LLC)</div>
-        <div class="seg" data-seg="entity">
-          <button type="button" data-v="celeb">Celeb</button>
-          <button type="button" data-v="trible">Trible</button>
-        </div>
-      </div>
       <div class="full" id="dateWrap">
         <label class="check"><input type="checkbox" data-k="dateAuto"> Дата документа = дата останньої оплати</label>
         <input type="date" data-k="invoiceDate" id="invDate" style="margin-top:8px;max-width:220px">
@@ -126,9 +126,11 @@
 </form>
 
 <aside class="side">
+  <div class="numbox" id="numBox" hidden></div>
   <div class="actions">
     <button class="btn" id="btnNew" type="button">Новий</button>
     <button class="btn" id="btnSave" type="button">Зберегти</button>
+    <form class="loadnum" id="loadForm"><input type="text" id="loadNum" placeholder="№ інвойсу" inputmode="numeric" aria-label="Номер інвойсу"><button class="btn" type="submit">Завантажити</button></form>
     <select id="statusSel" aria-label="Статус" style="width:auto;min-height:36px"></select>
     <span class="grow"></span>
     <details class="links"><summary class="btn">Посилання</summary><div class="menu" id="linksMenu"></div></details>
@@ -219,6 +221,7 @@
 <script src="/vendor/jszip.min.js"></script>
 <script src="/fonts.js"></script>
 <script src="/shared/calc.js"></script>
+<script src="/logo.js"></script>
 <script src="/pdf.js"></script>
 <script src="/app.js"></script>
 </body>

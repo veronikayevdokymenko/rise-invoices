@@ -18,6 +18,16 @@ let R = null, ME = null;              // reference data, current user
 let inv = null;                       // invoice data being edited
 let cur = null;                       // {id, version, status, number, legacy, docType} of the saved invoice, or null
 let savedJSON = null, viewingVersion = null;
+let curDocs = [];                     // live PDFs of the open invoice (for the download button)
+
+/* payment channel = method + card brand, stored as one string like before ("Card Visa", "ApplePay Mastercard", "GooglePay Amex", "PayPal") */
+const METHODS = [["Card", "Card"], ["ApplePay", "Apple Pay"], ["GooglePay", "Google Pay"], ["PayPal", "PayPal"]];
+let BRANDS = ["Visa", "Mastercard", "Amex", "Discover"];
+function parseChannel(ch) {
+  if (ch === "PayPal") return { m: "PayPal", b: "" };
+  const x = /^(Card|ApplePay|GooglePay)\s+(.+)$/.exec(String(ch || ""));
+  return x ? { m: x[1], b: x[2] } : { m: "Card", b: BRANDS[0] };
+}
 
 /* ---------- API ---------- */
 async function api(method, path, body) {
@@ -89,12 +99,38 @@ function isDirty() { return savedJSON !== JSON.stringify(stripUI(inv)); }
 function stripUI(d) { const c = clone(d); c.lines.forEach((l) => delete l._edit); delete c.client.vatCheck_ui; return c; }
 const locked = () => !!cur && (cur.legacy || cur.status === "void");
 
+/* country field: type a name (UA or EN) or the 3-letter code, or pick from the list */
+function countryLabel(c) {
+  const en = c.name && c.name !== countryName(c) ? ` (${c.name})` : "";
+  return `${countryName(c)}${en} — ${c.code} · ${c.layout === "VAT" ? c.rate + "%" : "без VAT"}`;
+}
+function findCountry(text, loose) {
+  const q = String(text || "").trim().toLowerCase();
+  if (!q) return null;
+  const exact = R.countries.find((c) => countryLabel(c).toLowerCase() === q);
+  if (exact || !loose) return exact || null;
+  const byCode = R.countries.find((c) => c.code.toLowerCase() === q);
+  if (byCode) return byCode;
+  const byName = R.countries.find((c) => [c.name, c.name_uk].some((n) => String(n || "").toLowerCase() === q));
+  if (byName) return byName;
+  const some = R.countries.filter((c) => countryLabel(c).toLowerCase().includes(q));
+  return some.length === 1 ? some[0] : null;
+}
+function setCountry(code) {
+  if (code === inv.country) return;
+  inv.country = code; inv.currency = "AUTO"; inv.layout = "auto"; if (code !== "USA") inv.usState = "";
+  refresh(true);
+}
+
 function fillSelects() {
   const sorted = [...R.countries].sort((a, b) => countryName(a).localeCompare(countryName(b), "uk"));
-  const opt = (c) => `<option value="${esc(c.code)}">${esc(countryName(c))} — ${esc(c.code)} · ${c.layout === "VAT" ? c.rate + "%" : "без VAT"}</option>`;
   const pop = POPULAR.map((p) => R.countries.find((c) => c.code === p)).filter(Boolean);
-  $("#countrySel").innerHTML = `<optgroup label="Часті">${pop.map(opt).join("")}</optgroup><optgroup label="ЄС">${sorted.filter((c) => c.region === "EU").map(opt).join("")}</optgroup><optgroup label="Інші">${sorted.filter((c) => c.region !== "EU").map(opt).join("")}</optgroup>`;
-  $("#channelSel").innerHTML = R.paymentChannels.map((c) => `<option>${esc(c)}</option>`).join("");
+  const rest = sorted.filter((c) => !POPULAR.includes(c.code));
+  $("#countryList").innerHTML = [...pop, ...rest].map((c) => `<option value="${esc(countryLabel(c))}"></option>`).join("");
+  const cardBrands = R.paymentChannels.filter((c) => c.startsWith("Card ")).map((c) => c.slice(5));
+  if (cardBrands.length) BRANDS = cardBrands;
+  $("#methodSel").innerHTML = METHODS.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
+  $("#brandSel").innerHTML = BRANDS.map((b) => `<option>${esc(b)}</option>`).join("");
   $("#statusSel").innerHTML = Object.entries(STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("") + `<option value="void" disabled>Анульовано</option>`;
   $("#fStatus").innerHTML = `<option value="">Усі статуси</option>` + Object.entries(ALL_STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   $("#lAction").innerHTML = `<option value="">Усі дії</option>` + Object.entries(ACTIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
@@ -111,7 +147,11 @@ function syncForm() {
     const v = getPath(inv, el.dataset.k);
     if (el.type === "checkbox") el.checked = !!v; else if (document.activeElement !== el) el.value = v ?? "";
   });
-  if ($("#countrySel").value !== inv.country) { $("#countrySel").insertAdjacentHTML("beforeend", `<option value="${esc(inv.country)}">${esc(inv.country)}</option>`); $("#countrySel").value = inv.country; }
+  if (document.activeElement !== $("#countryInp")) { const cc = R.countries.find((x) => x.code === inv.country); $("#countryInp").value = cc ? countryLabel(cc) : inv.country; }
+  const pc = parseChannel(inv.payment.channel);
+  $("#methodSel").value = pc.m;
+  if (pc.b && !BRANDS.includes(pc.b)) $("#brandSel").insertAdjacentHTML("beforeend", `<option>${esc(pc.b)}</option>`);
+  $("#brandSel").value = pc.b || BRANDS[0];
   $$("[data-seg]").forEach((seg) => { const v = getPath(inv, seg.dataset.seg); seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v))); });
   const b2b = inv.kind === "B2B", credit = inv.docType === "credit_note";
   $$(".b2b").forEach((e) => (e.hidden = !b2b));
@@ -191,6 +231,29 @@ function renderCtx() {
   if (viewingVersion) h += ` <span class="pill">відкрито версію ${viewingVersion}</span>`;
   if (!locked() && isDirty()) h += ` <span class="sub">є незбережені зміни</span>`;
   $("#ctx").innerHTML = h;
+  renderNumBox();
+}
+
+/* number + download, visible on the editor once a number is assigned */
+async function loadDocs() {
+  const id = cur && cur.id;
+  if (!id || cur.number == null) { curDocs = []; renderNumBox(); return; }
+  try {
+    const r = await api("GET", "/invoices/" + id);
+    if (!cur || cur.id !== id) return;
+    curDocs = r.documents.filter((d) => !d.superseded && (d.has_pdf || d.drive_file_id));
+  } catch (e) { curDocs = []; }
+  renderNumBox();
+}
+function renderNumBox() {
+  const box = $("#numBox");
+  if (!cur || cur.number == null) { box.hidden = true; box.innerHTML = ""; return; }
+  const link = (d, label, primary) => `<a class="btn sm${primary ? " primary" : ""}" href="/api/documents/${d.id}/pdf"${d.has_pdf ? "" : ' target="_blank" rel="noopener"'}>${esc(label)}</a>`;
+  const docs = curDocs.length === 1 ? link(curDocs[0], curDocs[0].has_pdf ? "Скачати PDF" : "PDF у Google Drive", true)
+    : curDocs.length ? curDocs.map((d) => link(d, d.number + ".pdf")).join("")
+    : '<span class="sub">PDF ще не згенеровано</span>';
+  box.innerHTML = `<span class="num">№ ${esc(cur.number)}</span>${pill(cur.status)}<span class="grow"></span>${docs}`;
+  box.hidden = false;
 }
 
 function refresh(full) { if (full) renderLines(); syncForm(); renderPreview(); saveLocalDraft(); }
@@ -236,6 +299,21 @@ $("#form").addEventListener("input", (e) => {
   syncForm(); renderPreview(); saveLocalDraft();
 });
 $("#form").addEventListener("change", (e) => { if (e.target.dataset.k === "client.email") checkDuplicates(); });
+$("#countryInp").addEventListener("input", (e) => { const c = findCountry(e.target.value, false); if (c) setCountry(c.code); });
+$("#countryInp").addEventListener("change", (e) => {
+  const c = findCountry(e.target.value, true);
+  if (c) { setCountry(c.code); e.target.value = countryLabel(c); }
+  else { if (e.target.value.trim()) toast("Країну не знайдено — оберіть зі списку"); const cc = R.countries.find((x) => x.code === inv.country); e.target.value = cc ? countryLabel(cc) : inv.country; }
+});
+$("#countryInp").addEventListener("focus", (e) => e.target.select());
+function setChannel(m, b) {
+  const v = m === "PayPal" ? "PayPal" : m + " " + (b || BRANDS[0]);
+  inv.payment.channel = v;
+  const forced = R.channelEntity[v]; if (forced && inv.entity !== forced) { inv.entity = forced; toast(v + " → юрособа " + R.entities[forced].name); }
+  refresh(false);
+}
+$("#methodSel").addEventListener("change", (e) => setChannel(e.target.value, $("#brandSel").value));
+$("#brandSel").addEventListener("change", (e) => setChannel($("#methodSel").value, e.target.value));
 $("#form").addEventListener("click", (e) => {
   const sb = e.target.closest("[data-seg] button");
   if (sb) {
@@ -311,6 +389,23 @@ async function save(opts = {}) {
 }
 $("#btnSave").onclick = () => save().catch(() => {});
 
+/* "Завантажити": open an invoice by its number (e.g. 10712 or 10712-2) */
+$("#loadForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const raw = $("#loadNum").value.trim().replace(/^№\s*/, "");
+  if (!raw) return toast("Введіть номер інвойсу");
+  const base = raw.split("-")[0];
+  if (!/^\d+$/.test(base)) return toast("Номер — це цифри, напр. 10712 або 10712-2");
+  if (!locked() && isDirty() && !confirm("Є незбережені зміни. Відкрити інший інвойс?")) return;
+  try {
+    const r = await api("GET", "/invoices?limit=50&q=" + encodeURIComponent(raw));
+    const hit = r.rows.find((x) => String(x.number) === base) || (raw.includes("-") && r.rows[0]);
+    if (!hit) return toast("Інвойс № " + raw + " не знайдено");
+    $("#loadNum").value = "";
+    if (hit.legacy || hit.status === "void") openDrawer(hit.id); else openInvoice(hit.id);
+  } catch (err) { toast(err.message); }
+});
+
 $("#statusSel").onchange = async (e) => {
   const status = e.target.value;
   if (!cur) return;
@@ -325,7 +420,7 @@ $("#statusSel").onchange = async (e) => {
 
 $("#btnNew").onclick = () => { if (!locked() && isDirty() && !confirm("Є незбережені зміни. Почати новий документ?")) return; newInvoice(); };
 function newInvoice(data) {
-  inv = C.normalize(data || C.blank()); cur = null; viewingVersion = null; dupFor = null; dupInfo = "";
+  inv = C.normalize(data || C.blank()); cur = null; viewingVersion = null; dupFor = null; dupInfo = ""; curDocs = [];
   savedJSON = data ? null : JSON.stringify(stripUI(inv));
   closeDrawer(); refresh(true); showTab("editor");
   if (data) checkDuplicates();
@@ -341,7 +436,7 @@ async function openInvoice(id, v) {
     cur = { id: x.id, version: x.current_version, status: x.status, number: x.number, legacy: x.legacy, docType: x.doc_type };
     savedJSON = JSON.stringify(stripUI(C.normalize(r.versions[0].data)));
     viewingVersion = v && v !== x.current_version ? v : null;
-    dupFor = null; closeDrawer(); refresh(true); showTab("editor"); checkDuplicates();
+    dupFor = null; curDocs = []; closeDrawer(); refresh(true); showTab("editor"); checkDuplicates(); loadDocs();
     if (viewingVersion) toast(`Відкрито версію ${v}. «Зберегти» зробить її поточною.`);
   } catch (e) { toast(e.message); }
 }
@@ -359,7 +454,7 @@ $("#btnGen").onclick = async () => {
     const payload = await Promise.all(files.map(async (f) => ({ number: f.number, pdf: await blobToBase64(f.blob) })));
     await api("POST", `/invoices/${cur.id}/documents`, { version: cur.version, files: payload });
     R.nextNumber = Math.max(R.nextNumber, prep.number + 1);
-    refresh(false);
+    refresh(false); loadDocs();
     if (files.length === 1) { download(files[0].name, files[0].blob); toast(`${files[0].name} готовий — надішліть на апрув`); }
     else showFilesModal(files, prep.number);
   } catch (e) { if (e.code !== "cancelled") toast("PDF не створено: " + e.message); }
@@ -380,8 +475,8 @@ function showFilesModal(files, number) {
 function userText(d) {
   const p = d.payment, t = C.taxInfo(R, d);
   const ch = p.channel || "";
-  const method = ch === "PayPal" ? "PayPal" : ch.startsWith("ApplePay") ? "Apple Pay (card)" : "Card";
-  const brand = ch.replace(/^(ApplePay|Card)\s*/, "");
+  const method = ch === "PayPal" ? "PayPal" : ch.startsWith("ApplePay") ? "Apple Pay (card)" : ch.startsWith("GooglePay") ? "Google Pay (card)" : "Card";
+  const brand = ch.replace(/^(ApplePay|GooglePay|Card)\s*/, "");
   const blocks = d.lines.map((l, i) => {
     const c = C.calcLine(l, t); const r = [];
     if (d.lines.length > 1) r.push(`Payment ${i + 1}`);
@@ -605,7 +700,7 @@ async function loadReference() { R = await api("GET", "/reference"); }
       if (r.invoice.current_version !== cur.version) {
         if (isDirty()) toast("Цей інвойс змінили в іншому місці. Ваші незбережені зміни лишились — при збереженні буде запропоновано відкрити свіжу версію.");
         else { toast("Цей інвойс змінили в іншому місці — відкриваю свіжу версію"); openInvoice(cur.id); }
-      } else refresh(false);
+      } else { refresh(false); loadDocs(); }
     } catch (e) {
       if (e.status === 404) { toast("Збережений інвойс не знайдено — це тепер новий документ"); cur = null; savedJSON = null; refresh(false); }
       else toast("Не вдалося оновити інвойс з сервера: " + e.message);

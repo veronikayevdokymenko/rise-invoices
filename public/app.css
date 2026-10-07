@@ -193,3 +193,14 @@ table.list.log tbody tr{cursor:default}
 .login{max-width:420px;margin:18vh auto;text-align:center}
 .login .mark{justify-content:center;margin-bottom:18px}
 @media (max-width:560px){.bar input[type=text],.bar select{max-width:none}}
+
+/* logo image, LLC block on top, number box, load-by-number */
+.mark img{width:30px;height:30px;border-radius:7px;display:block}
+.step-llc{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.step-llc h2{margin:0}
+.numbox{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;margin-bottom:12px;border:1px solid var(--line);border-radius:10px;background:var(--brand-soft)}
+.numbox .num{font-size:22px;font-weight:700;letter-spacing:-.01em;color:var(--brand);font-variant-numeric:tabular-nums}
+.numbox .grow{flex:1}
+.loadnum{display:flex;gap:6px;align-items:center;margin:0}
+.loadnum input{width:120px;min-height:36px}
+.numbox a.btn{text-decoration:none}

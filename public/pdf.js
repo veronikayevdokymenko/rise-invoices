@@ -36,9 +36,12 @@
     const newPage = () => { P = []; pages.push(P); };
     const E = D.entity;
 
-    // logo
-    R(52, 71, 37, 37, { fill: "#111111" });
-    T(70.5, 93, ".RiSE", { size: 10.5, bold: true, align: "center", color: "#FFFFFF" });
+    // logo (image from logo.js; falls back to the old drawn mark if it is missing)
+    if (window.INVOICE_LOGO) P.push({ t: "img", x: 52, y: 71, w: 37, h: 37 });
+    else {
+      R(52, 71, 37, 37, { fill: "#111111" });
+      T(70.5, 93, ".RiSE", { size: 10.5, bold: true, align: "center", color: "#FFFFFF" });
+    }
 
     // seller block (Invoice!B7:B12)
     const sl = [[E.name, 1], ["Address:", 1], ...E.address.map((a) => [a, 0])];
@@ -138,6 +141,7 @@
     let s = '<svg viewBox="0 0 595.28 841.89" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Попередній перегляд документа"><rect width="595.28" height="841.89" fill="#fff"/>';
     for (const o of ops) {
       if (o.t === "rect") s += `<rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" fill="${o.fill || "none"}" ${o.stroke ? `stroke="${o.stroke}" stroke-width="${o.lw}"` : ""}/>`;
+      else if (o.t === "img") s += `<image href="${window.INVOICE_LOGO}" x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}"/>`;
       else if (o.t === "line") s += `<line x1="${o.x1}" y1="${o.y1}" x2="${o.x2}" y2="${o.y2}" stroke="#000" stroke-width="${o.lw}"/>`;
       else s += `<text x="${o.x}" y="${o.y}" font-family="InvoiceSans, Arial, sans-serif" font-size="${o.size}" font-weight="${o.bold ? 700 : 400}" fill="${o.color}" text-anchor="${o.align === "center" ? "middle" : o.align === "right" ? "end" : "start"}" xml:space="preserve">${esc(o.str)}</text>`;
     }
@@ -153,7 +157,8 @@
           if (o.fill) d.setFillColor(o.fill);
           if (o.stroke) { d.setDrawColor(o.stroke); d.setLineWidth(o.lw); }
           d.rect(o.x, o.y, o.w, o.h, o.fill && o.stroke ? "FD" : o.fill ? "F" : "S");
-        } else if (o.t === "line") { d.setDrawColor("#000000"); d.setLineWidth(o.lw); d.line(o.x1, o.y1, o.x2, o.y2); }
+        } else if (o.t === "img") { d.addImage(window.INVOICE_LOGO, "JPEG", o.x, o.y, o.w, o.h); }
+        else if (o.t === "line") { d.setDrawColor("#000000"); d.setLineWidth(o.lw); d.line(o.x1, o.y1, o.x2, o.y2); }
         else { d.setFont("IS", o.bold ? "bold" : "normal"); d.setFontSize(o.size); d.setTextColor(o.color); d.text(o.str, o.x, o.y, { align: o.align }); }
       }
     });
