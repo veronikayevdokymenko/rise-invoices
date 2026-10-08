@@ -26,8 +26,21 @@
     return mdoc.splitTextToSize(String(str || ""), width);
   }
 
-  /** D = one document from InvoiceCalc.documents() */
+  /**
+   * D = one document from InvoiceCalc.documents().
+   * Everything must fit on ONE page: if the natural layout spills over (many payments), the table
+   * rows and the gaps are compressed step by step until the totals, note and payment terms fit.
+   */
   function layout(D) {
+    for (let k = 1; k >= 0.55; k = Math.round((k - 0.05) * 100) / 100) {
+      const pages = layoutAt(D, k);
+      if (pages.length === 1) return pages;
+    }
+    return layoutAt(D, 0.55);
+  }
+
+  function layoutAt(D, k) {
+    const tight = k < 1;
     const t = D.tax;
     const pages = [[]]; let P = pages[0];
     const T = (x, y, str, o = {}) => P.push({ t: "text", x, y, str: String(str), size: o.size || 9.5, bold: !!o.bold, align: o.align || "left", color: o.color || "#000000" });
@@ -84,23 +97,23 @@
       heads.forEach((h, i) => { const cx = (xs[i] + xs[i + 1]) / 2; h.forEach((s, k) => T(cx, top + 35 - (h.length - 1 - k) * 10, s, { bold: true, size: 8.8, align: "center" })); });
       return top + 39;
     };
-    let yy = header(Math.max(352, lastBill + 35));
-    const RL = 9.8;
+    let yy = header(tight ? lastBill + 26 : Math.max(352, lastBill + 35));
+    const RL = 9.8 * k, FS = Math.max(6, 8.5 * k), PAD = 4 * k;
     D.lines.forEach((l, i) => {
-      const dl = []; String(l.desc || "").split("\n").forEach((p) => wrapText(p, 8.5, false, xs[2] - xs[1] - 6).forEach((s) => dl.push(s)));
-      const h = Math.max(1, dl.length) * RL + 4;
+      const dl = []; String(l.desc || "").split("\n").forEach((p) => wrapText(p, FS, false, xs[2] - xs[1] - 6).forEach((s) => dl.push(s)));
+      const h = Math.max(1, dl.length) * RL + PAD;
       if (yy + h > 790) { newPage(); yy = header(60); }
       xs.forEach((x) => L(x, yy, x, yy + h)); L(xs[0], yy + h, xs.at(-1), yy + h);
-      const base = yy + h - 3, cx = (k) => (xs[k] + xs[k + 1]) / 2;
-      T(cx(0), base, String(i + 1), { bold: true, size: 8.5, align: "center" });
-      dl.forEach((s, k) => T(cx(1), base - (dl.length - 1 - k) * RL, s, { size: 8.5, align: "center" }));
-      T(cx(2), base, "1", { size: 8.5, align: "center" });
-      T(cx(3), base, fmtLong(l.date), { size: 8.5, align: "center" });
-      if (t.novat) T(cx(4), base, money(l.gross), { size: 8.5, align: "center" });
+      const base = yy + h - 3 * k, cx = (k) => (xs[k] + xs[k + 1]) / 2;
+      T(cx(0), base, String(i + 1), { bold: true, size: FS, align: "center" });
+      dl.forEach((s, k) => T(cx(1), base - (dl.length - 1 - k) * RL, s, { size: FS, align: "center" }));
+      T(cx(2), base, "1", { size: FS, align: "center" });
+      T(cx(3), base, fmtLong(l.date), { size: FS, align: "center" });
+      if (t.novat) T(cx(4), base, money(l.gross), { size: FS, align: "center" });
       else {
-        T(cx(4), base, money(l.net), { size: 8.5, align: "center" });
-        T(cx(5), base, money(l.vat), { size: 8.5, align: "center" });
-        T(cx(6), base, money(l.gross), { size: 8.5, align: "center" });
+        T(cx(4), base, money(l.net), { size: FS, align: "center" });
+        T(cx(5), base, money(l.vat), { size: FS, align: "center" });
+        T(cx(6), base, money(l.gross), { size: FS, align: "center" });
       }
       yy += h;
     });
@@ -113,7 +126,7 @@
       T((xs[4] + xs[5]) / 2, yy + 9.8, money(D.gross), { bold: true, size: 10, align: "center" });
       yy += 13; L(xs[3], yy, xs[5], yy, 0.9);
     } else {
-      if (yy + 47 + 33 <= 805) yy += 47; else if (yy + 18 + 33 <= 812) yy += 18; else { newPage(); yy = 60; }
+      if (!tight && yy + 47 + 33 <= 805) yy += 47; else if (yy + 18 + 33 <= 812) yy += 18; else { newPage(); yy = 60; }
       const x0 = 354.5, x1 = 547.2, cv = 508.4;
       const rate = (Math.round(t.rate * 1000) / 1000) + "%";
       const rows = [["SUBTOTAL", null, D.net], [t.taxLabel, rate, D.vat], [t.totalLabel, null, D.gross]];
@@ -130,7 +143,8 @@
     const note = t.note;
     const termLines = String(D.terms || "").split("\n").flatMap((p) => wrapText(p, 8, false, 495));
     const noteLines = note ? wrapText(note, note.length > 80 ? 7 : 8, false, 495) : [];
-    let ny = Math.max(yy + 90, 620), fy = noteLines.length ? ny + (noteLines.length - 1) * 10 + 31 : Math.max(yy + 110, 648);
+    let ny = tight ? yy + 24 : Math.max(yy + 90, 620);
+    let fy = noteLines.length ? ny + (noteLines.length - 1) * 10 + (tight ? 18 : 31) : tight ? yy + 30 : Math.max(yy + 110, 648);
     if (fy + termLines.length * 10 > 815) { newPage(); ny = 80; fy = noteLines.length ? ny + (noteLines.length - 1) * 10 + 31 : 80; }
     noteLines.forEach((s, k) => T(52, ny + k * 10, s, { size: note.length > 80 ? 7 : 8 }));
     termLines.forEach((s, k) => T(52, fy + k * 10, s, { size: 8 }));

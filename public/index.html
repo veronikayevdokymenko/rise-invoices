@@ -135,10 +135,6 @@
 
 <!-- ARCHIVE -->
 <section class="view" id="view-archive" hidden>
-  <div class="subtabs seg" id="arcSwitch">
-    <button type="button" data-sub="docs" aria-pressed="true">Документи</button>
-    <button type="button" data-sub="log" aria-pressed="false">Історія дій (лог)</button>
-  </div>
   <div id="arcDocs">
   <div class="bar">
     <input type="text" id="q" placeholder="Пошук: номер, ім'я, email, VAT, order ID">
@@ -157,25 +153,6 @@
   </div>
   </div>
 
-  <!-- LOG (inside the archive tab) -->
-  <div id="arcLog" hidden>
-  <div class="bar">
-    <input type="text" id="lq" placeholder="Пошук: номер, клієнт, email, хто створив">
-    <select id="lAction"><option value="">Усі дії</option></select>
-    <label class="f" style="flex-direction:row;align-items:center">з <input type="date" id="lFrom" style="width:auto"></label>
-    <label class="f" style="flex-direction:row;align-items:center">по <input type="date" id="lTo" style="width:auto"></label>
-    <a class="btn sm" id="lCsv" href="/api/log.csv">Експорт CSV</a>
-    <span class="sub" id="lCount"></span>
-  </div>
-  <div class="tablewrap">
-    <table class="list log">
-      <thead><tr><th>Коли (UTC)</th><th>Дія</th><th>№</th><th>Клієнт</th><th>Країна · канал</th><th>LLC · режим</th><th class="num">Сума</th><th>Хто</th></tr></thead>
-      <tbody id="lbody"></tbody>
-    </table>
-    <div class="empty" id="lempty" hidden></div>
-    <div class="pager" id="lpager"></div>
-  </div>
-  </div>
 </section>
 
 <!-- SETTINGS -->

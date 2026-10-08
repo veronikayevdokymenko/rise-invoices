@@ -131,9 +131,9 @@ function fillSelects() {
   $("#countryList").innerHTML = [...pop, ...rest].map((c) => `<option value="${esc(countryLabel(c))}"></option>`).join("");
   const cardBrands = R.paymentChannels.filter((c) => c.startsWith("Card ")).map((c) => c.slice(5));
   if (cardBrands.length) BRANDS = cardBrands;
+  if (!BRANDS.includes("Other")) BRANDS = BRANDS.concat("Other");
   $("#methodSel").innerHTML = METHODS.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
   $("#brandSel").innerHTML = BRANDS.map((b) => `<option>${esc(b)}</option>`).join("");
-  $("#lAction").innerHTML = `<option value="">Усі дії</option>` + Object.entries(ACTIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   const L = R.links;
   $("#linksMenu").innerHTML = [["Notion: Invoice request", L.notionRequest], ["Notion: B2B", L.notionB2B], ["Notion: B2C", L.notionB2C], ["VIES (EU VAT)", L.vies], ["UK VAT checker", L.ukVat], ["AU ABN lookup", L.auAbn]]
     .map(([t, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>`).join("");
@@ -508,6 +508,29 @@ $("#q").oninput = arcSoon; $("#fStatus").onchange = arcSoon; $("#fType").onchang
 $("#tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) openDrawer(+tr.dataset.id); });
 $("#tbody").addEventListener("keydown", (e) => { if (e.key === "Enter") { const tr = e.target.closest("tr[data-id]"); if (tr) openDrawer(+tr.dataset.id); } });
 
+/* Short invoice history: only edits, PDF generations, downloads and voids. An edit and the PDF
+   generated in the same click are shown as one line. */
+const HIST = { GENERATE: "PDF згенеровано", DOWNLOAD: "PDF завантажено", EDIT: "Відредаговано", VOID: "Анульовано", LEGACY: "Імпортовано з Google-таблиці" };
+function historyBox(rows) {
+  const asc = rows.filter((l) => HIST[l.action]).slice().reverse();
+  const items = []; let firstGen = true;
+  asc.forEach((l) => {
+    const d = l.details || {};
+    const prev = items[items.length - 1];
+    if (l.action === "GENERATE" && prev && prev.action === "EDIT" && prev.user === l.user_email && new Date(l.at) - new Date(prev.at) < 5 * 60e3) {
+      prev.label = "Відредаговано і згенеровано PDF"; firstGen = false; return;
+    }
+    let label = HIST[l.action], extra = "";
+    if (l.action === "GENERATE") { if (firstGen) label = "Створено, PDF згенеровано"; firstGen = false; if (d.documents && d.documents.length > 1) extra = d.documents.join(", "); }
+    if (l.action === "DOWNLOAD") extra = d.document || l.invoice_number || "";
+    if (l.action === "EDIT" && d.version) extra = "версія " + d.version;
+    if (d.reason) extra += (extra ? " · " : "") + d.reason;
+    items.push({ action: l.action, at: l.at, user: l.user_email, label, extra });
+  });
+  if (!items.length) return "";
+  return `<details class="hist"><summary>Історія (${items.length})</summary><ul>${items.reverse().map((i) => `<li><span class="when">${esc(fmtWhen(i.at))}</span><span><b>${esc(i.label)}</b>${i.extra ? ` <span class="sub">${esc(i.extra)}</span>` : ""} <span class="sub">· ${esc(who(i.user))}</span></span></li>`).join("")}</ul></details>`;
+}
+
 async function openDrawer(id) {
   let r;
   try { r = await api("GET", "/invoices/" + id); } catch (e) { return toast(e.message); }
@@ -517,6 +540,7 @@ async function openDrawer(id) {
     <div class="row">${d.has_pdf ? `<a class="btn sm" href="/api/documents/${d.id}/pdf?inline=1" target="_blank" rel="noopener">Відкрити</a><a class="btn sm" href="/api/documents/${d.id}/pdf">PDF</a>` : d.drive_file_id ? `<a class="btn sm" href="/api/documents/${d.id}/pdf" target="_blank" rel="noopener">Google Drive</a>` : ""}
     ${!cls && x.doc_type !== "credit_note" && !x.legacy && x.status !== "void" ? `<button class="btn sm" data-cn="${esc(d.number)}">Кредит-нота</button>` : ""}</div></li>`;
   $("#drawer").innerHTML = `<div class="row" style="justify-content:space-between"><h3>${x.number != null ? "№ " + esc(x.number) : "Без номера"}</h3><button class="icon-btn" data-x aria-label="Закрити">×</button></div>
+  ${historyBox(r.log)}
   <div class="row" style="margin-top:8px">${pill(x.status)}${x.doc_type === "credit_note" ? `<span class="pill cn">кредит-нота до ${esc(x.credit_for || "")}</span>` : ""}<span class="sub">${esc((R.entities[x.entity] || {}).name || "")}</span></div>
   ${x.void_reason ? `<div class="alert error" style="margin-top:10px"><span class="dot"></span><span>Анульовано: ${esc(x.void_reason)}</span></div>` : ""}
   <dl class="kv"><dt>Клієнт</dt><dd>${esc(x.client_name || "—")}${x.kind === "B2B" ? " · B2B" : ""}</dd><dt>Email</dt><dd>${esc(x.client_email || "—")}</dd>
@@ -531,9 +555,7 @@ async function openDrawer(id) {
   <h4 style="margin:22px 0 4px;font-size:15px">Документи</h4>
   ${live.length ? `<ul class="docs">${live.map((d) => docLi(d)).join("")}</ul>` : '<p class="hint">PDF ще не генерувався.</p>'}
   ${old.length ? `<details style="margin-top:8px"><summary class="sub">Попередні PDF (${old.length})</summary><ul class="docs">${old.map((d) => docLi(d, "old")).join("")}</ul></details>` : ""}
-  ${r.versions.length ? `<h4 style="margin:22px 0 4px;font-size:15px">Версії</h4><ul class="versions">${r.versions.map((v, i) => `<li class="${i === 0 ? "cur" : ""}"><div><b>Версія ${v.v}</b>${i === 0 ? ' <span class="sub">поточна</span>' : ""}<div class="sub">${esc(fmtWhen(v.created_at))} ${esc(who(v.created_by))}${v.note ? " · " + esc(v.note) : ""}</div></div>${i > 0 && canEdit ? `<button class="btn sm" data-ov="${v.v}">Відкрити</button>` : ""}</li>`).join("")}</ul>` : ""}
-  <h4 style="margin:22px 0 4px;font-size:15px">Історія</h4>
-  <ul class="timeline">${r.log.map((l) => `<li><span class="when">${esc(fmtWhen(l.at))}</span><span><span class="act">${esc(ACTIONS[l.action] || l.action)}</span> ${esc(l.action === "GENERATE" || l.action === "LEGACY" ? l.invoice_number || "" : "")} ${l.details && l.details.to ? "→ " + esc(STATUSES[l.details.to] || l.details.to) : ""} ${l.details && (l.details.reason || l.details.comment) ? "· " + esc(l.details.reason || l.details.comment) : ""} <span class="sub">${esc(who(l.user_email))}</span></span></li>`).join("")}</ul>`;
+  ${r.versions.length ? `<h4 style="margin:22px 0 4px;font-size:15px">Версії</h4><ul class="versions">${r.versions.map((v, i) => `<li class="${i === 0 ? "cur" : ""}"><div><b>Версія ${v.v}</b>${i === 0 ? ' <span class="sub">поточна</span>' : ""}<div class="sub">${esc(fmtWhen(v.created_at))} ${esc(who(v.created_by))}${v.note ? " · " + esc(v.note) : ""}</div></div>${i > 0 && canEdit ? `<button class="btn sm" data-ov="${v.v}">Відкрити</button>` : ""}</li>`).join("")}</ul>` : ""}`;
   $("#drawerScrim").hidden = false;
   $("#drawer").onclick = async (e) => {
     if (e.target.closest("[data-x]")) return closeDrawer();
@@ -557,39 +579,6 @@ async function openDrawer(id) {
   setTimeout(() => $("#drawer [data-x]")?.focus(), 0);
 }
 $("#drawerScrim").addEventListener("click", (e) => { if (e.target.id === "drawerScrim") closeDrawer(); });
-
-/* ---------- invoice log ---------- */
-let logOffset = 0, logTimer = 0;
-function logQuery() {
-  const qs = new URLSearchParams();
-  if ($("#lq").value.trim()) qs.set("q", $("#lq").value.trim());
-  if ($("#lAction").value) qs.set("action", $("#lAction").value);
-  if ($("#lFrom").value) qs.set("from", $("#lFrom").value);
-  if ($("#lTo").value) qs.set("to", $("#lTo").value);
-  return qs;
-}
-async function renderLog() {
-  const qs = logQuery(); $("#lCsv").href = "/api/log.csv?" + qs;
-  qs.set("limit", 100); qs.set("offset", logOffset);
-  try {
-    const r = await api("GET", "/log?" + qs);
-    $("#lCount").textContent = `${r.total} записів`;
-    $("#lbody").innerHTML = r.rows.map((l) => `<tr>
-      <td class="sub">${esc(fmtUTC(l.at))}</td>
-      <td><span class="act">${esc(ACTIONS[l.action] || l.action)}</span>${l.details && l.details.to ? `<div class="sub">→ ${esc(STATUSES[l.details.to] || l.details.to)}</div>` : ""}${l.details && (l.details.reason || l.details.comment) ? `<div class="sub">${esc(l.details.reason || l.details.comment)}</div>` : ""}</td>
-      <td class="no">${l.invoice_id ? `<a href="#" data-inv="${l.invoice_id}">${esc(l.invoice_number || "—")}</a>` : esc(l.invoice_number || "")}</td>
-      <td>${esc(l.customer_name || "")}<div class="sub">${esc(l.customer_email || "")}${l.customer_type ? " · " + esc(l.customer_type) : ""}</div></td>
-      <td>${esc(l.country || "")}<div class="sub">${esc(l.payment_channel || "")}</div></td>
-      <td><span class="sub">${esc(l.llc || "")}</span><div class="sub">${esc(l.mode || "")}${l.vat_rule ? " · " + esc(l.vat_rule) : ""}</div></td>
-      <td class="num">${l.total != null ? money(l.total) + " " + esc(l.currency || "") : ""}${l.vat_amount ? `<div class="sub">VAT ${money(l.vat_amount)}</div>` : ""}</td>
-      <td class="sub">${esc(who(l.user_email))}</td></tr>`).join("");
-    $("#lempty").hidden = r.rows.length > 0; $("#lempty").textContent = "Записів немає.";
-    pager($("#lpager"), logOffset, r.total, (o) => { logOffset = o; renderLog(); });
-  } catch (e) { toast(e.message); }
-}
-const logSoon = () => { clearTimeout(logTimer); logTimer = setTimeout(() => { logOffset = 0; renderLog(); }, 250); };
-["#lq", "#lAction", "#lFrom", "#lTo"].forEach((s) => $(s).addEventListener("input", logSoon));
-$("#lbody").addEventListener("click", (e) => { const a = e.target.closest("[data-inv]"); if (a) { e.preventDefault(); openDrawer(+a.dataset.inv); } });
 
 /* ---------- settings ---------- */
 let ctDraft = null;
@@ -642,21 +631,10 @@ $("#legacyGo").onclick = async () => {
 };
 
 /* ---------- tabs & boot ---------- */
-/* Archive tab has two views: documents and the action log */
-let arcSub = "docs";
-function showArcSub(sub) {
-  arcSub = sub === "log" ? "log" : "docs";
-  $$("#arcSwitch button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sub === arcSub)));
-  $("#arcDocs").hidden = arcSub !== "docs"; $("#arcLog").hidden = arcSub !== "log";
-  if (arcSub === "log") renderLog(); else renderArchive();
-}
-$("#arcSwitch").addEventListener("click", (e) => { const b = e.target.closest("[data-sub]"); if (b) showArcSub(b.dataset.sub); });
-
 function showTab(t) {
-  if (t === "log") { t = "archive"; arcSub = "log"; }
   $$("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
   $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + t));
-  if (t === "archive") showArcSub(arcSub);
+  if (t === "archive") renderArchive();
   if (t === "settings") renderSettings();
   window.scrollTo(0, 0);
 }
