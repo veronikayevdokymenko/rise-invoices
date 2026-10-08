@@ -39,7 +39,9 @@ test("tax math matches the Google Sheet", () => {
   const deu = t({ country: "DEU", lines: [line(39.99, "2026-01-01")] });
   assert.deepEqual([deu.net, deu.vat], [33.61, 6.38]);
   const tx = t({ country: "USA", usState: "TX", taxMode: "custom", customRate: "8.25", lines: [line(100, "2026-01-01")] });
-  assert.equal(tx.vat, Math.round(100 * 0.8 * 0.0825 / 1.0825 * 100) / 100);
+  assert.equal(tx.vat, Math.round(100 * 0.8 * 0.0825 / (1 + 0.8 * 0.0825) * 100) / 100);
+  const txSheet = t({ country: "USA", usState: "TX", taxMode: "custom", customRate: "8.25", lines: [line(59.99, "2026-01-01"), line(44.99, "2026-01-01")] });
+  assert.deepEqual(txSheet.lines.map((l) => [l.net, l.vat]), [[56.28, 3.71], [42.20, 2.79]], "matches the Texas rows in the sheet");
   const aus = t({ country: "AUS", lines: [line(48.99, "2026-01-01")] });
   assert.equal(aus.tax.title, "Invoice"); assert.equal(aus.tax.taxLabel, "GST"); assert.equal(aus.tax.sellerTaxId, "ARN: 3000 3990 0474");
   const jpn = t({ country: "JPN", lines: [line(10, "2026-01-01")] });
