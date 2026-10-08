@@ -314,7 +314,6 @@ router.post("/invoices/:id/prepare", wrap(async (req, res) => {
       await db.query("SELECT pg_advisory_xact_lock($1)", [NUMBER_LOCK]);
       number = await nextNumber(db, ref.startNumber);
       await db.query("UPDATE invoices SET number = $1, updated_at = now(), updated_by = $2 WHERE id = $3", [number, req.user.email, id]);
-      await log(db, req.user.email, "NUMBER", Object.assign({}, inv, { number, data: inv.data }), { ref });
     }
     const docs = calc.documents(ref, inv.data, number).map((d) => ({ number: d.number, date: d.date, net: d.net, vat: d.vat, gross: d.gross }));
     return { number, version: inv.current_version, documents: docs, data: inv.data };
@@ -350,9 +349,10 @@ router.post("/invoices/:id/documents", wrap(async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, number`,
         [id, inv.current_version, d.number, d.date, d.net, d.vat, d.gross, d.tax.currency, buf, sha, req.user.email]);
       saved.push(rows[0]);
-      await log(db, req.user.email, "GENERATE", Object.assign({}, inv, { data: inv.data }), {
-        ref, doc: d, details: { version: inv.current_version, documentId: rows[0].id, sha256: sha } });
     }
+    // one history row per generation (not per PDF)
+    await log(db, req.user.email, "GENERATE", Object.assign({}, inv, { data: inv.data }), {
+      ref, details: { version: inv.current_version, documents: saved.map((x) => x.number) } });
     await db.query("UPDATE invoices SET updated_at = now(), updated_by = $1 WHERE id = $2", [req.user.email, id]);
     return { documents: saved };
   });
@@ -408,67 +408,18 @@ router.post("/invoices/:id/credit-note", wrap(async (req, res) => {
 
 router.get("/documents/:id/pdf", wrap(async (req, res) => {
   const id = idParam(req);
-  const { rows } = await query("SELECT number, pdf, drive_file_id FROM documents WHERE id = $1", [id]);
+  const { rows } = await query("SELECT invoice_id, number, pdf, drive_file_id FROM documents WHERE id = $1", [id]);
   const d = rows[0];
   if (!d) fail(404, "not_found");
   if (!d.pdf && d.drive_file_id) return res.redirect("https://drive.google.com/file/d/" + encodeURIComponent(d.drive_file_id) + "/view");
   if (!d.pdf) fail(404, "no_pdf");
+  if (!req.query.inline) { // a download (not just viewing) goes into the invoice history
+    await log({ query }, req.user.email, "DOWNLOAD", { id: d.invoice_id, number: d.number }, { details: { document: d.number } })
+      .catch((e) => console.error("download log failed", e.message));
+  }
   res.set("Content-Type", "application/pdf");
   res.set("Content-Disposition", `${req.query.inline ? "inline" : "attachment"}; filename="${String(d.number).replace(/[^\w.-]/g, "")}_Invoice.pdf"`);
   res.send(d.pdf);
-}));
-
-/* ---------- invoice log ---------- */
-
-function logFilter(req) {
-  const where = [], p = [];
-  const add = (sql, v) => { p.push(v); where.push(sql.replace("?", "$" + p.length)); };
-  const q = String(req.query.q || "").trim();
-  if (q) {
-    p.push("%" + q.toLowerCase() + "%");
-    const n = "$" + p.length;
-    where.push(`(lower(coalesce(invoice_number,'')) LIKE ${n} OR lower(coalesce(customer_name,'')) LIKE ${n}
-      OR lower(coalesce(customer_email,'')) LIKE ${n} OR lower(coalesce(user_email,'')) LIKE ${n})`);
-  }
-  if (req.query.action) add("action = ?", String(req.query.action));
-  if (req.query.user) add("user_email = ?", String(req.query.user));
-  if (req.query.from) add("at >= ?::date", dateParam(req.query.from));
-  if (req.query.to) add("at < (?::date + 1)", dateParam(req.query.to));
-  return { w: where.length ? "WHERE " + where.join(" AND ") : "", p };
-}
-
-router.get("/log", wrap(async (req, res) => {
-  const { w, p } = logFilter(req);
-  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
-  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
-  const [rows, count] = await Promise.all([
-    query(`SELECT * FROM invoice_log ${w} ORDER BY at DESC, id DESC LIMIT ${limit} OFFSET ${offset}`, p),
-    query(`SELECT count(*)::int AS n FROM invoice_log ${w}`, p),
-  ]);
-  res.json({ rows: rows.rows, total: count.rows[0].n });
-}));
-
-const csvCell = (v) => {
-  if (v == null) return "";
-  let s = v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
-  if (typeof v !== "number" && !/^-?\d+(\.\d+)?$/.test(s) && /^[=+\-@\t\r]/.test(s)) s = "'" + s; // stop spreadsheet formula injection
-  return /[",\n\r;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-};
-
-router.get("/log.csv", wrap(async (req, res) => {
-  const { w, p } = logFilter(req);
-  const { rows } = await query(`SELECT * FROM invoice_log ${w} ORDER BY at DESC, id DESC LIMIT 50000`, p);
-  const cols = [
-    ["invoice number", "invoice_number"], ["customer name", "customer_name"], ["customer email", "customer_email"], ["country", "country"],
-    ["Payment channel", "payment_channel"], ["customer type", "customer_type"], ["payments count", "pay_count"], ["LLC", "llc"],
-    ["requested by", "user_email"], ["mode", "mode"], ["invoice date", "invoice_date"], ["invoice amount", "amount"], ["VAT amount", "vat_amount"],
-    ["total incl VAT", "total"], ["currency", "currency"], ["VAT rule", "vat_rule"], ["client VAT number", "client_vat"],
-    ["action", "action"], ["timestamp UTC", "at"], ["details", "details"],
-  ];
-  const out = [cols.map((c) => c[0]).join(",")].concat(rows.map((r) => cols.map((c) => csvCell(r[c[1]])).join(",")));
-  res.set("Content-Type", "text/csv; charset=utf-8");
-  res.set("Content-Disposition", `attachment; filename="invoice_log_${new Date().toISOString().slice(0, 10)}.csv"`);
-  res.send("﻿" + out.join("\r\n"));
 }));
 
 /* ---------- tools ---------- */
