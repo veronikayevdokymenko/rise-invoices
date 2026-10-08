@@ -67,7 +67,25 @@
     x.client = Object.assign(blank().client, x.client || {});
     x.payment = Object.assign(blank().payment, x.payment || {});
     if (!Array.isArray(x.lines)) x.lines = [];
+    applyAutoMode(x);
     return x;
+  }
+
+  /**
+   * Document mode and date are not chosen by hand any more:
+   *  - B2C → one PDF (MULTI), with or without VAT by country;
+   *  - B2B → one PDF per payment (SINGLE), except a single payment → MULTI;
+   *  - invoice date = date of the last payment.
+   * Credit notes stay one PDF and keep their own (editable) date.
+   */
+  function autoMode(d) {
+    if (d.docType === "credit_note") return "MULTI";
+    return d.kind === "B2B" && (d.lines || []).length > 1 ? "SINGLE" : "MULTI";
+  }
+  function applyAutoMode(d) {
+    d.mode = autoMode(d);
+    d.dateAuto = d.docType !== "credit_note";
+    return d;
   }
 
   function countryOf(ref, code) {
@@ -216,5 +234,5 @@
     return out;
   }
 
-  return { round2, parseAmount, todayISO, blank, normalize, countryOf, countryFor, taxInfo, calcLine, lastDate, documents, summary, checks };
+  return { round2, parseAmount, todayISO, blank, normalize, autoMode, applyAutoMode, countryOf, countryFor, taxInfo, calcLine, lastDate, documents, summary, checks };
 });
