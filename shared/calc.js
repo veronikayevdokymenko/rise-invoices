@@ -221,7 +221,9 @@
     if (d.taxMode === "custom" && !t.novat && !(parseAmount(d.customRate) > 0)) E("Вкажіть свою ставку податку.");
     if (d.country === "USA") W("<b>США:</b> перевірте місто/штат (для Texas оберіть TX — податок рахується з 80% суми).");
     if (d.country === "CAN") W("<b>Канада:</b> перевірте провінцію.");
-    if (c.rule === "alert") W("<b>" + h(c.name) + " — Alert.</b> Перед відправкою ескалюйте в legal-канал.");
+    if (c.rule === "alert") W(d.country === "USA"
+      ? "<b>United States</b> — обов'язково вкажіть місто та штат в legal-каналі."
+      : "<b>" + h(c.name) + " — Alert.</b> Перед відправкою ескалюйте в legal-канал.");
     if (c.rule === "escalate") W("<b>" + h(c.name) + "</b>: вимоги складні, ескалюємо кейс-бай-кейс у legal.");
     if (d.layout !== "auto" && d.layout !== c.layout) W("Шаблон змінено вручну: для " + h(c.name) + " за таблицею — " + (c.layout === "VAT" ? "з VAT" : "без VAT") + ".");
     if (d.kind === "B2B") {
