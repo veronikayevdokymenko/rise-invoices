@@ -167,10 +167,13 @@ function syncForm() {
   $("#taxStdBtn").textContent = `Standard VAT (${c.rate}%)`;
   $("#taxHint").textContent = { standard: `Ставка ${c.rate}% для ${countryName(c)} — суми з податком, податок виділяється всередині.${t.share < 1 ? " Texas: податок з 80% суми." : ""}`, zero: "Компанія з валідним VAT-номером: 0%.", custom: "Своя ставка, якщо legal сказали інакше." }[inv.taxMode] || "";
   $("#noteHint").textContent = inv.note === "auto" ? (t.note ? "Буде: " + t.note : "За правилом примітки не буде (вона додається для Celeb + B2B + 0%).") : "";
-  $(".multi-only-wrap").hidden = credit;
-  $("#dateWrap").hidden = inv.mode === "SINGLE" && !credit;
-  $("#invDate").hidden = inv.dateAuto;
-  if (inv.dateAuto) $("#invDate").value = C.lastDate(inv);
+  C.applyAutoMode(inv);
+  const n = inv.lines.length, last = fmtShort(C.lastDate(inv));
+  $("#modeAuto").innerHTML = credit
+    ? `<b>Один PDF</b> (кредит-нота)<span class="sub">Дату кредит-ноти вказуйте нижче.</span>`
+    : inv.mode === "SINGLE"
+      ? `<b>PDF на кожен платіж (SINGLE)</b> — ${n} PDF<span class="sub">B2B з кількома платежами. Дата кожного PDF = дата його платежу.</span>`
+      : `<b>Один PDF (MULTI)${t.novat ? " без VAT" : ""}</b><span class="sub">${inv.kind === "B2B" ? "B2B з одним платежем" : "B2C"}. Дата документа = дата останньої оплати (${esc(last)}).</span>`;
   $("#addLine").disabled = inv.lines.length >= R.maxPayments || locked();
   $("#linesHint").textContent = `Суми — як у Solid, з податком. До ${R.maxPayments} платежів.`;
   const vc = inv.client.vatCheck;

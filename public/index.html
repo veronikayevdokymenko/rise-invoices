@@ -38,17 +38,9 @@
   </div>
 
   <div class="step step-doc">
-    <div class="multi-only-wrap">
-      <h2>Документ</h2>
-      <div class="seg" data-seg="mode">
-        <button type="button" data-v="MULTI">Один PDF (MULTI)</button>
-        <button type="button" data-v="SINGLE">PDF на кожен платіж (SINGLE)</button>
-      </div>
-    </div>
-    <div id="dateWrap">
-      <label class="check"><input type="checkbox" data-k="dateAuto"> Дата документа = дата останньої оплати</label>
-      <input type="date" data-k="invoiceDate" id="invDate" style="margin-top:8px;max-width:220px">
-    </div>
+    <h2>Документ</h2>
+    <div class="mode-auto" id="modeAuto"></div>
+    <label class="f cn-only" id="dateWrap">Дата кредит-ноти<input type="date" data-k="invoiceDate" id="invDate" style="max-width:220px"></label>
   </div>
 
   <div class="step">

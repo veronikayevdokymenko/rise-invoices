@@ -198,8 +198,11 @@ table.list.log tbody tr{cursor:default}
 .mark img{width:30px;height:30px;border-radius:7px;display:block}
 .step-llc{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .step-llc h2{margin:0}
-.step-doc{display:flex;flex-direction:column;gap:14px}
-.step-doc h2{margin:0 0 8px}
+.step-doc{display:flex;flex-direction:column;gap:10px}
+.step-doc h2{margin:0}
+.mode-auto{font-size:14px;line-height:1.5}
+.mode-auto b{font-weight:600}
+.mode-auto .sub{display:block;margin-top:2px}
 .numbox{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;margin-bottom:12px;border:1px solid var(--line);border-radius:10px;background:var(--brand-soft)}
 .numbox .num{font-size:22px;font-weight:700;letter-spacing:-.01em;color:var(--brand);font-variant-numeric:tabular-nums}
 .numbox .grow{flex:1}
