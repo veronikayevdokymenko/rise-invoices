@@ -135,14 +135,8 @@ test("API flow", { skip: !BASE && "set TEST_URL to run" }, async (t) => {
     assert.equal((await call("PUT", "/api/countries", { list: list2 })).status, 200);
   });
 
-  await t.test("CSV keeps negative amounts numeric", async () => {
-    const csv = await call("GET", "/api/log.csv?action=GENERATE");
-    assert.match(csv.body, /,-39\.99,/);
-    assert.doesNotMatch(csv.body, /'-39/);
-  });
-
   await t.test("bad dates are rejected, not 500", async () => {
-    assert.equal((await call("GET", "/api/log?from=yesterday")).status, 400);
+    assert.equal((await call("GET", "/api/invoices?from=yesterday")).status, 400);
   });
 
   await t.test("void keeps the record and blocks edits", async () => {
@@ -158,12 +152,17 @@ test("API flow", { skip: !BASE && "set TEST_URL to run" }, async (t) => {
     assert.equal((await call("DELETE", `/api/invoices/${d.body.id}`)).status, 200);
   });
 
-  await t.test("log is append-only and complete", async () => {
-    const r = await call("GET", "/api/log?q=" + number);
-    const actions = r.body.rows.map((x) => x.action);
-    for (const a of ["NUMBER", "GENERATE", "EDIT", "VOID"]) assert.ok(actions.includes(a), a);
-    const csv = await call("GET", "/api/log.csv?q=" + number);
-    assert.match(csv.body, /invoice number,customer name/);
+  await t.test("short history: one row per generation, downloads logged, no log page", async () => {
+    const inv = await call("GET", `/api/invoices/${id}`);
+    const docId = inv.body.documents.find((d) => !d.superseded).id;
+    await call("GET", `/api/documents/${docId}/pdf`);          // download → logged
+    await call("GET", `/api/documents/${docId}/pdf?inline=1`); // view → not logged
+    const log = (await call("GET", `/api/invoices/${id}`)).body.log;
+    const actions = log.map((x) => x.action);
+    for (const a of ["GENERATE", "EDIT", "VOID", "DOWNLOAD"]) assert.ok(actions.includes(a), a);
+    assert.ok(!actions.includes("NUMBER"));
+    assert.equal(actions.filter((a) => a === "DOWNLOAD").length, 1);
+    assert.equal((await call("GET", "/api/log")).status, 404);
   });
 
   await t.test("search finds documents by number", async () => {
