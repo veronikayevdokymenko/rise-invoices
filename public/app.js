@@ -6,6 +6,8 @@ const { money, esc, fmtShort } = P;
 const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
+/* No workflow statuses: an invoice is saved when its PDF is generated. Only "void" and "legacy" are shown.
+   The old status names stay here just to label older log entries. */
 const STATUSES = { draft: "Чернетка", review: "На апруві", fix: "Потрібні правки", approved: "Апрувнуто", sent: "Надіслано юзеру" };
 const ALL_STATUSES = Object.assign({}, STATUSES, { void: "Анульовано", legacy: "З Google-таблиці" });
 const ACTIONS = {
@@ -62,7 +64,7 @@ const who = (email) => (email || "").split("@")[0];
 const getPath = (o, p) => p.split(".").reduce((a, k) => a?.[k], o);
 const setPath = (o, p, v) => { const ks = p.split("."); let a = o; ks.slice(0, -1).forEach((k) => (a = a[k])); a[ks.at(-1)] = v; };
 const countryName = (c) => (c.name_uk || c.name);
-const pill = (status) => `<span class="pill s-${esc(status)}">${esc(ALL_STATUSES[status] || status)}</span>`;
+const pill = (status) => status === "void" || status === "legacy" ? `<span class="pill s-${esc(status)}">${esc(ALL_STATUSES[status])}</span>` : "";
 
 /** Ask for a short text (reason/comment). Resolves to the text or null. */
 function askText(title, hint, okLabel) {
@@ -131,8 +133,6 @@ function fillSelects() {
   if (cardBrands.length) BRANDS = cardBrands;
   $("#methodSel").innerHTML = METHODS.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
   $("#brandSel").innerHTML = BRANDS.map((b) => `<option>${esc(b)}</option>`).join("");
-  $("#statusSel").innerHTML = Object.entries(STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("") + `<option value="void" disabled>Анульовано</option>`;
-  $("#fStatus").innerHTML = `<option value="">Усі статуси</option>` + Object.entries(ALL_STATUSES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   $("#lAction").innerHTML = `<option value="">Усі дії</option>` + Object.entries(ACTIONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   const L = R.links;
   $("#linksMenu").innerHTML = [["Notion: Invoice request", L.notionRequest], ["Notion: B2B", L.notionB2B], ["Notion: B2C", L.notionB2C], ["VIES (EU VAT)", L.vies], ["UK VAT checker", L.ukVat], ["AU ABN lookup", L.auAbn]]
@@ -176,10 +176,7 @@ function syncForm() {
   const vc = inv.client.vatCheck;
   $("#vatRes").className = "vat-res" + (vc ? (vc.valid ? " ok" : " bad") : "");
   $("#vatRes").textContent = vc && vc.vat === inv.client.vat ? (vc.valid ? "VALID — " + (vc.name || "назва недоступна") : "INVALID") + " · VIES " + fmtWhen(vc.checkedAt) : "";
-  $("#statusSel").value = cur ? cur.status : "draft";
-  $("#statusSel").disabled = !cur || locked();
   $$("#form input, #form select, #form textarea, #form .seg button, #form .line button").forEach((el) => (el.disabled = locked()));
-  $("#btnSave").disabled = locked();
 }
 
 function renderLines() {
@@ -227,9 +224,9 @@ function renderPreview() {
 function renderCtx() {
   let h;
   if (!cur) h = `Новий ${inv.docType === "credit_note" ? "документ (кредит-нота)" : "інвойс"} · <span class="sub">наступний № ${esc(R.nextNumber)}</span>`;
-  else h = `${cur.number != null ? `<b>№ ${esc(cur.number)}</b>` : "<b>Чернетка</b> без номера"} ${pill(cur.status)}${cur.docType === "credit_note" ? ' <span class="pill cn">кредит-нота</span>' : ""} <span class="sub">v${esc(cur.version)}</span>`;
+  else h = `${cur.number != null ? `<b>№ ${esc(cur.number)}</b>` : "<b>Без номера</b>"} ${pill(cur.status)}${cur.docType === "credit_note" ? ' <span class="pill cn">кредит-нота</span>' : ""} <span class="sub">v${esc(cur.version)}</span>`;
   if (viewingVersion) h += ` <span class="pill">відкрито версію ${viewingVersion}</span>`;
-  if (!locked() && isDirty()) h += ` <span class="sub">є незбережені зміни</span>`;
+  if (!locked() && isDirty() && cur) h += ` <span class="sub">є зміни — збережуться при генерації PDF</span>`;
   $("#ctx").innerHTML = h;
   renderNumBox();
 }
@@ -346,7 +343,7 @@ $("#btnVies").onclick = async () => {
   } catch (e) { toast(e.message); } finally { b.disabled = false; b.textContent = "Перевірити VIES"; }
 };
 
-/* ---------- save / status ---------- */
+/* ---------- save (only called by "Згенерувати PDF") ---------- */
 async function save(opts = {}) {
   const data = stripUI(inv);
   if (cur && savedJSON === JSON.stringify(data)) { if (!opts.silent) toast("Без змін"); return cur; }
@@ -358,20 +355,9 @@ async function save(opts = {}) {
       cur = { id: r.id, version: r.version, status: r.status, number: r.number, legacy: false, docType: data.docType };
       stored = r.data;
     } else {
-      let reason = opts.reason;
-      for (;;) {
-        try {
-          const r = await api("PUT", "/invoices/" + cur.id, { data, baseVersion: cur.version, reason, note: opts.note || "" });
-          if (r.status !== cur.status && r.status === "draft") toast("Статус повернуто в «Чернетку» — потрібен новий апрув");
-          Object.assign(cur, { version: r.version, status: r.status, number: r.number });
-          stored = r.data;
-          break;
-        } catch (e) {
-          if (e.code !== "reason_required") throw e;
-          reason = await askText("Причина змін", esc(e.message), "Зберегти");
-          if (!reason) throw Object.assign(new Error("Скасовано"), { code: "cancelled" });
-        }
-      }
+      const r = await api("PUT", "/invoices/" + cur.id, { data, baseVersion: cur.version, note: opts.note || "" });
+      Object.assign(cur, { version: r.version, status: r.status, number: r.number });
+      stored = r.data;
     }
     // the server freezes the country rules into the saved data — continue from exactly what was stored
     if (stored) { const keepEdit = inv.lines.map((l) => l._edit); inv = C.normalize(stored); inv.lines.forEach((l, i) => { if (keepEdit[i]) l._edit = true; }); }
@@ -387,7 +373,6 @@ async function save(opts = {}) {
     throw e;
   }
 }
-$("#btnSave").onclick = () => save().catch(() => {});
 
 /* "Завантажити": open an invoice by its number (e.g. 10712 or 10712-2) */
 $("#loadForm").addEventListener("submit", async (e) => {
@@ -405,18 +390,6 @@ $("#loadForm").addEventListener("submit", async (e) => {
     if (hit.legacy || hit.status === "void") openDrawer(hit.id); else openInvoice(hit.id);
   } catch (err) { toast(err.message); }
 });
-
-$("#statusSel").onchange = async (e) => {
-  const status = e.target.value;
-  if (!cur) return;
-  if (isDirty()) { toast("Спершу збережіть зміни"); e.target.value = cur.status; return; }
-  let comment;
-  if (status === "fix") { comment = await askText("Що треба виправити?", "Коментар потрапить у лог.", "Зберегти"); if (comment == null) { e.target.value = cur.status; return; } }
-  try {
-    await api("POST", `/invoices/${cur.id}/status`, { status, comment });
-    cur.status = status; toast("Статус: " + STATUSES[status]); refresh(false);
-  } catch (err) { toast(err.message); e.target.value = cur.status; }
-};
 
 $("#btnNew").onclick = () => { if (!locked() && isDirty() && !confirm("Є незбережені зміни. Почати новий документ?")) return; newInvoice(); };
 function newInvoice(data) {
@@ -437,7 +410,7 @@ async function openInvoice(id, v) {
     savedJSON = JSON.stringify(stripUI(C.normalize(r.versions[0].data)));
     viewingVersion = v && v !== x.current_version ? v : null;
     dupFor = null; curDocs = []; closeDrawer(); refresh(true); showTab("editor"); checkDuplicates(); loadDocs();
-    if (viewingVersion) toast(`Відкрито версію ${v}. «Зберегти» зробить її поточною.`);
+    if (viewingVersion) toast(`Відкрито версію ${v}. «Згенерувати PDF» зробить її поточною.`);
   } catch (e) { toast(e.message); }
 }
 
@@ -455,7 +428,7 @@ $("#btnGen").onclick = async () => {
     await api("POST", `/invoices/${cur.id}/documents`, { version: cur.version, files: payload });
     R.nextNumber = Math.max(R.nextNumber, prep.number + 1);
     refresh(false); loadDocs();
-    if (files.length === 1) { download(files[0].name, files[0].blob); toast(`${files[0].name} готовий — надішліть на апрув`); }
+    if (files.length === 1) { download(files[0].name, files[0].blob); toast(`${files[0].name} готовий`); }
     else showFilesModal(files, prep.number);
   } catch (e) { if (e.code !== "cancelled") toast("PDF не створено: " + e.message); }
   finally { btn.textContent = "Згенерувати PDF"; renderPreview(); }
@@ -511,12 +484,11 @@ async function renderArchive() {
     const r = await api("GET", "/invoices?" + qs);
     $("#count").textContent = `${r.total} записів`;
     $("#tbody").innerHTML = r.rows.map((x) => `<tr data-id="${x.id}" tabindex="0">
-      <td class="no">${x.number != null ? esc(x.number) : '<span class="sub">чернетка</span>'}${x.mode === "SINGLE" && x.doc_type !== "credit_note" ? `<div class="sub">${esc(x.pay_count)} PDF</div>` : ""}${x.doc_type === "credit_note" ? `<div class="sub">КН до ${esc(x.credit_for || "")}</div>` : ""}</td>
+      <td class="no">${x.number != null ? esc(x.number) : '<span class="sub">без номера</span>'}${pill(x.status) ? `<div>${pill(x.status)}</div>` : ""}${x.mode === "SINGLE" && x.doc_type !== "credit_note" ? `<div class="sub">${esc(x.pay_count)} PDF</div>` : ""}${x.doc_type === "credit_note" ? `<div class="sub">КН до ${esc(x.credit_for || "")}</div>` : ""}</td>
       <td>${esc(x.client_name || "—")}<div class="sub">${esc(x.client_email || "")}${x.kind === "B2B" ? " · B2B" : ""}</div></td>
       <td>${esc(x.country || "")}<div class="sub">${esc(x.channel || "")}</div></td>
       <td>${esc(fmtShort(x.invoice_date))}</td>
       <td class="num">${money(x.gross || 0)} ${esc(x.currency || "")}</td>
-      <td>${pill(x.status)}</td>
       <td class="sub">${esc(fmtWhen(x.updated_at))}<br>${esc(who(x.updated_by || x.created_by))}</td></tr>`).join("");
     $("#empty").hidden = r.rows.length > 0;
     $("#empty").innerHTML = r.total ? "" : 'Нічого не знайдено. <button class="link-btn" id="goNew">Створити інвойс</button>';
@@ -541,7 +513,7 @@ async function openDrawer(id) {
   const docLi = (d, cls) => `<li class="${cls || ""}"><div><b>${esc(d.number)}_Invoice.pdf</b><div class="sub">${esc(fmtShort(d.doc_date))} · ${money(d.gross || 0)} ${esc(d.currency || "")}${d.version ? " · v" + d.version : ""} · ${esc(fmtWhen(d.created_at))} ${esc(who(d.created_by))}</div></div>
     <div class="row">${d.has_pdf ? `<a class="btn sm" href="/api/documents/${d.id}/pdf?inline=1" target="_blank" rel="noopener">Відкрити</a><a class="btn sm" href="/api/documents/${d.id}/pdf">PDF</a>` : d.drive_file_id ? `<a class="btn sm" href="/api/documents/${d.id}/pdf" target="_blank" rel="noopener">Google Drive</a>` : ""}
     ${!cls && x.doc_type !== "credit_note" && !x.legacy && x.status !== "void" ? `<button class="btn sm" data-cn="${esc(d.number)}">Кредит-нота</button>` : ""}</div></li>`;
-  $("#drawer").innerHTML = `<div class="row" style="justify-content:space-between"><h3>${x.number != null ? "№ " + esc(x.number) : "Чернетка"}</h3><button class="icon-btn" data-x aria-label="Закрити">×</button></div>
+  $("#drawer").innerHTML = `<div class="row" style="justify-content:space-between"><h3>${x.number != null ? "№ " + esc(x.number) : "Без номера"}</h3><button class="icon-btn" data-x aria-label="Закрити">×</button></div>
   <div class="row" style="margin-top:8px">${pill(x.status)}${x.doc_type === "credit_note" ? `<span class="pill cn">кредит-нота до ${esc(x.credit_for || "")}</span>` : ""}<span class="sub">${esc((R.entities[x.entity] || {}).name || "")}</span></div>
   ${x.void_reason ? `<div class="alert error" style="margin-top:10px"><span class="dot"></span><span>Анульовано: ${esc(x.void_reason)}</span></div>` : ""}
   <dl class="kv"><dt>Клієнт</dt><dd>${esc(x.client_name || "—")}${x.kind === "B2B" ? " · B2B" : ""}</dd><dt>Email</dt><dd>${esc(x.client_email || "—")}</dd>
@@ -567,7 +539,7 @@ async function openDrawer(id) {
     const rel = e.target.closest("[data-rel]"); if (rel) { e.preventDefault(); return openDrawer(+rel.dataset.rel); }
     if (e.target.closest("[data-dup]")) { try { const c = await api("POST", `/invoices/${id}/copy`, {}); newInvoice(c.data); toast("Копія — отримає новий номер при генерації"); } catch (err) { toast(err.message); } return; }
     const cn = e.target.closest("[data-cn]");
-    if (cn) { try { const c = await api("POST", `/invoices/${id}/credit-note`, { docNumber: cn.dataset.cn }); newInvoice(c.data); toast("Кредит-нота до " + cn.dataset.cn + " — перевірте суми і збережіть"); } catch (err) { toast(err.message); } return; }
+    if (cn) { try { const c = await api("POST", `/invoices/${id}/credit-note`, { docNumber: cn.dataset.cn }); newInvoice(c.data); toast("Кредит-нота до " + cn.dataset.cn + " — перевірте суми і згенеруйте PDF"); } catch (err) { toast(err.message); } return; }
     if (e.target.closest("[data-void]")) {
       const reason = await askText("Анулювати № " + x.number + "?", "Номер не звільняється, документ лишається в архіві з позначкою «Анульовано». Якщо гроші повертали — зробіть кредит-ноту.", "Анулювати");
       if (!reason) return;

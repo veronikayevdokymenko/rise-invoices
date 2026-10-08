@@ -37,6 +37,20 @@
     </div>
   </div>
 
+  <div class="step step-doc">
+    <div class="multi-only-wrap">
+      <h2>Документ</h2>
+      <div class="seg" data-seg="mode">
+        <button type="button" data-v="MULTI">Один PDF (MULTI)</button>
+        <button type="button" data-v="SINGLE">PDF на кожен платіж (SINGLE)</button>
+      </div>
+    </div>
+    <div id="dateWrap">
+      <label class="check"><input type="checkbox" data-k="dateAuto"> Дата документа = дата останньої оплати</label>
+      <input type="date" data-k="invoiceDate" id="invDate" style="margin-top:8px;max-width:220px">
+    </div>
+  </div>
+
   <div class="step">
     <h2><span>1</span>Документ і клієнт</h2>
     <div class="row" style="margin-bottom:14px">
@@ -107,19 +121,6 @@
       <button type="button" class="btn sm" id="addLine">Додати платіж</button>
       <span class="hint" id="linesHint">Суми — як у Solid, з податком.</span>
     </div>
-    <div class="grid" style="margin-top:18px">
-      <div class="multi-only-wrap">
-        <div style="font-size:13px;color:var(--muted);font-weight:500;margin-bottom:6px">Документ</div>
-        <div class="seg" data-seg="mode">
-          <button type="button" data-v="MULTI">Один PDF (MULTI)</button>
-          <button type="button" data-v="SINGLE">PDF на кожен платіж (SINGLE)</button>
-        </div>
-      </div>
-      <div class="full" id="dateWrap">
-        <label class="check"><input type="checkbox" data-k="dateAuto"> Дата документа = дата останньої оплати</label>
-        <input type="date" data-k="invoiceDate" id="invDate" style="margin-top:8px;max-width:220px">
-      </div>
-    </div>
   </div>
 
 </form>
@@ -128,9 +129,7 @@
   <div class="numbox" id="numBox" hidden></div>
   <div class="actions">
     <button class="btn" id="btnNew" type="button">Новий</button>
-    <button class="btn" id="btnSave" type="button">Зберегти</button>
     <form class="loadnum" id="loadForm"><input type="text" id="loadNum" placeholder="№ інвойсу" inputmode="numeric" aria-label="Номер інвойсу"><button class="btn" type="submit">Завантажити</button></form>
-    <select id="statusSel" aria-label="Статус" style="width:auto;min-height:36px"></select>
     <span class="grow"></span>
     <details class="links"><summary class="btn">Посилання</summary><div class="menu" id="linksMenu"></div></details>
     <button class="btn" id="btnUser" type="button">Текст юзеру</button>
@@ -151,14 +150,14 @@
   <div id="arcDocs">
   <div class="bar">
     <input type="text" id="q" placeholder="Пошук: номер, ім'я, email, VAT, order ID">
-    <select id="fStatus"></select>
+    <select id="fStatus"><option value="">Усі</option><option value="void">Анульовані</option><option value="legacy">З Google-таблиці</option></select>
     <select id="fType"><option value="">Усі документи</option><option value="invoice">Інвойси</option><option value="credit_note">Кредит-ноти</option></select>
     <label class="check"><input type="checkbox" id="fMine"> Лише мої</label>
     <span class="sub" id="count"></span>
   </div>
   <div class="tablewrap">
     <table class="list">
-      <thead><tr><th>№</th><th>Клієнт</th><th>Країна</th><th>Дата</th><th class="num">Сума</th><th>Статус</th><th>Оновлено</th></tr></thead>
+      <thead><tr><th>№</th><th>Клієнт</th><th>Країна</th><th>Дата</th><th class="num">Сума</th><th>Оновлено</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
     <div class="empty" id="empty" hidden></div>
