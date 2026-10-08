@@ -204,3 +204,4 @@ table.list.log tbody tr{cursor:default}
 .loadnum{display:flex;gap:6px;align-items:center;margin:0}
 .loadnum input{width:120px;min-height:36px}
 .numbox a.btn{text-decoration:none}
+#arcSwitch{margin-bottom:14px}

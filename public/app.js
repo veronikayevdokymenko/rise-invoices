@@ -667,11 +667,21 @@ $("#legacyGo").onclick = async () => {
 };
 
 /* ---------- tabs & boot ---------- */
+/* Archive tab has two views: documents and the action log */
+let arcSub = "docs";
+function showArcSub(sub) {
+  arcSub = sub === "log" ? "log" : "docs";
+  $$("#arcSwitch button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sub === arcSub)));
+  $("#arcDocs").hidden = arcSub !== "docs"; $("#arcLog").hidden = arcSub !== "log";
+  if (arcSub === "log") renderLog(); else renderArchive();
+}
+$("#arcSwitch").addEventListener("click", (e) => { const b = e.target.closest("[data-sub]"); if (b) showArcSub(b.dataset.sub); });
+
 function showTab(t) {
+  if (t === "log") { t = "archive"; arcSub = "log"; }
   $$("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
   $$(".view").forEach((v) => (v.hidden = v.id !== "view-" + t));
-  if (t === "archive") renderArchive();
-  if (t === "log") renderLog();
+  if (t === "archive") showArcSub(arcSub);
   if (t === "settings") renderSettings();
   window.scrollTo(0, 0);
 }
