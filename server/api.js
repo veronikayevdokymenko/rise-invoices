@@ -10,7 +10,6 @@ const REF = require("../data/reference.json");
 const router = express.Router();
 router.use(requireUser);
 
-const STATUSES = ["draft", "review", "fix", "approved", "sent"];
 const NUMBER_LOCK = 4711; // advisory lock id used while handing out invoice numbers
 
 /* ---------- helpers ---------- */
@@ -266,12 +265,10 @@ router.put("/invoices/:id", wrap(async (req, res) => {
     await freezeRules(db, ref, data);
     if (sameData(inv.data, data)) return { id, version: inv.current_version, status: inv.status, number: inv.number, same: true, data: inv.data };
     const reason = String(req.body.reason || "").trim();
-    const locked = ["approved", "sent"].includes(inv.status);
-    if (locked && !reason) fail(409, "reason_required", "Інвойс уже апрувнутий або надісланий. Вкажіть причину змін — він повернеться в «Чернетку» для нового апруву.");
     if (inv.number != null && data.docType !== inv.doc_type) fail(409, "type_locked", "Тип документа після присвоєння номера не змінюється.");
     const { cols } = summaryColumns(ref, data);
     const v = inv.current_version + 1;
-    const status = locked ? "draft" : inv.status;
+    const status = inv.status; // no workflow statuses any more: an edit keeps the invoice as it is
     const keys = Object.keys(cols);
     await db.query(
       `UPDATE invoices SET ${keys.map((k, i) => k + " = $" + (i + 1)).join(", ")},
@@ -360,25 +357,6 @@ router.post("/invoices/:id/documents", wrap(async (req, res) => {
     return { documents: saved };
   });
   res.json(out);
-}));
-
-router.post("/invoices/:id/status", wrap(async (req, res) => {
-  const id = idParam(req);
-  const status = String(req.body.status || "");
-  if (!STATUSES.includes(status)) fail(400, "bad_status");
-  await tx(async (db) => {
-    const inv = await loadInvoice(db, id, true);
-    if (inv.legacy || inv.status === "void") fail(409, "locked", "Статус цього інвойсу не змінюється.");
-    if (inv.status === status) return;
-    if (["review", "approved", "sent"].includes(status)) {
-      const { rows } = await db.query("SELECT 1 FROM documents WHERE invoice_id = $1 AND version = $2 AND NOT superseded LIMIT 1", [id, inv.current_version]);
-      if (!rows[0]) fail(409, "no_pdf", "Спершу згенеруйте PDF для поточної версії.");
-    }
-    await db.query("UPDATE invoices SET status = $1, updated_at = now(), updated_by = $2 WHERE id = $3", [status, req.user.email, id]);
-    await log(db, req.user.email, "STATUS", inv, {
-      ref: await reference(db), details: { from: inv.status, to: status, comment: String(req.body.comment || "").trim() || undefined } });
-  });
-  res.json({ ok: true, status });
 }));
 
 router.post("/invoices/:id/void", wrap(async (req, res) => {
