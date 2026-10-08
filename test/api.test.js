@@ -169,3 +169,18 @@ test("API flow", { skip: !BASE && "set TEST_URL to run" }, async (t) => {
     assert.ok(r.body.rows.some((x) => x.id === id));
   });
 });
+
+test("document mode is automatic", () => {
+  const m = (d) => calc.normalize(Object.assign(calc.blank(), d));
+  const two = [line(10, "2026-01-01"), line(10, "2026-02-01")];
+  assert.equal(m({ kind: "B2C", lines: two }).mode, "MULTI");
+  assert.equal(m({ kind: "B2B", lines: two }).mode, "SINGLE");
+  assert.equal(m({ kind: "B2B", lines: [line(10, "2026-01-01")] }).mode, "MULTI");
+  assert.equal(m({ kind: "B2C", mode: "SINGLE", lines: two }).mode, "MULTI", "a hand-set mode is ignored");
+  const b2c = calc.documents(ref, m({ kind: "B2C", dateAuto: false, invoiceDate: "2025-01-01", lines: two }), 1);
+  assert.equal(b2c.length, 1); assert.equal(b2c[0].date, "2026-02-01", "date = last payment");
+  const b2b = calc.documents(ref, m({ kind: "B2B", lines: two }), 7);
+  assert.deepEqual(b2b.map((x) => x.number), ["7-1", "7-2"]);
+  const cn = m({ docType: "credit_note", kind: "B2B", creditFor: "1", invoiceDate: "2026-03-05", lines: two });
+  assert.equal(cn.mode, "MULTI"); assert.equal(calc.documents(ref, cn, 9)[0].date, "2026-03-05");
+});
