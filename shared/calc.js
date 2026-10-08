@@ -7,7 +7,7 @@
  *  - VAT_RULES:  rate per country, EU / nonEU / UK, VAT vs NO VAT layout, currency
  *  - Setup!A7:   Standard VAT → country rate, "B2B - 0% VAT" → 0, CUSTOM → own rate
  *  - Setup!C13:  USA + Texas → only 80% of the amount is taxable
- *  - VAT_RULES!Y/Z: VAT = ROUND(gross × share × rate / (1 + rate), 2), net = gross − VAT
+ *  - VAT_RULES!Y/Z: VAT = ROUND(gross × share·rate / (1 + share·rate), 2) (Texas: share 0.8), net = gross − VAT
  *  - Invoice!B12: seller tax ID depends on legal entity + country (AUS / CAN / GBR / other)
  *  - Invoice!G10: "Invoice" for AUS, otherwise "Tax Invoice"; no-VAT layout = "Invoice"
  *  - Invoice!B41: Celeb + B2B + 0% → reverse-charge note by region (EU / UK / nonEU)
@@ -144,8 +144,10 @@
     let gross = round2(parseAmount(line.amount));
     if (t.credit) gross = -Math.abs(gross);
     if (t.novat) return { gross, net: gross, vat: 0 };
-    const r = t.rate / 100;
-    const vat = round2(gross * t.share * r / (1 + r));
+    // Sheet formula: tax = gross × (share·r) / (1 + share·r). For Texas share = 0.8, so the effective
+    // rate is 80% of the state rate and the gross is split by that effective rate (=D3*0.8*H$1/(1+0.8*H$1)).
+    const r = t.share * t.rate / 100;
+    const vat = round2(gross * r / (1 + r));
     return { gross, net: round2(gross - vat), vat };
   }
 
