@@ -76,9 +76,9 @@ test("API flow", { skip: !BASE && "set TEST_URL to run" }, async (t) => {
   const id = created.body.id;
   assert.equal(created.body.number, null, "drafts have no number");
 
-  await t.test("status needs a PDF first", async () => {
+  await t.test("there is no status endpoint any more", async () => {
     const r = await call("POST", `/api/invoices/${id}/status`, { status: "review" });
-    assert.equal(r.status, 409);
+    assert.equal(r.status, 404);
   });
 
   let number;
@@ -98,13 +98,10 @@ test("API flow", { skip: !BASE && "set TEST_URL to run" }, async (t) => {
     assert.equal(r.status, 400);
   });
 
-  await t.test("approve → edit needs a reason and returns to draft", async () => {
-    assert.equal((await call("POST", `/api/invoices/${id}/status`, { status: "approved" })).status, 200);
+  await t.test("editing a generated invoice saves a new version without a reason", async () => {
     const d2 = Object.assign({}, data, { lines: [line(39.99, "2026-09-01", "initial")] });
-    const noReason = await call("PUT", `/api/invoices/${id}`, { data: d2, baseVersion: 1 });
-    assert.equal(noReason.status, 409); assert.equal(noReason.body.error, "reason_required");
-    const ok = await call("PUT", `/api/invoices/${id}`, { data: d2, baseVersion: 1, reason: "client asked for one payment" });
-    assert.equal(ok.status, 200); assert.equal(ok.body.version, 2); assert.equal(ok.body.status, "draft");
+    const ok = await call("PUT", `/api/invoices/${id}`, { data: d2, baseVersion: 1 });
+    assert.equal(ok.status, 200); assert.equal(ok.body.version, 2); assert.equal(ok.body.number, number);
     const stale = await call("PUT", `/api/invoices/${id}`, { data, baseVersion: 1, reason: "x" });
     assert.equal(stale.status, 409); assert.equal(stale.body.error, "conflict");
   });
@@ -162,7 +159,7 @@ test("API flow", { skip: !BASE && "set TEST_URL to run" }, async (t) => {
   await t.test("log is append-only and complete", async () => {
     const r = await call("GET", "/api/log?q=" + number);
     const actions = r.body.rows.map((x) => x.action);
-    for (const a of ["NUMBER", "GENERATE", "STATUS", "EDIT", "VOID"]) assert.ok(actions.includes(a), a);
+    for (const a of ["NUMBER", "GENERATE", "EDIT", "VOID"]) assert.ok(actions.includes(a), a);
     const csv = await call("GET", "/api/log.csv?q=" + number);
     assert.match(csv.body, /invoice number,customer name/);
   });
